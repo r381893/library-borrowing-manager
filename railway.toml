@@ -1,0 +1,14 @@
+[build]
+builder = "NIXPACKS"
+
+[build.nixpacksPlan]
+phases.setup.nixPkgs = ["nodejs-18_x", "python311"]
+
+[build.nixpacksPlan.phases.install]
+cmds = ["cd library-app && npm install && npm run build", "pip install flask flask-cors pandas"]
+
+[build.nixpacksPlan.phases.build]
+cmds = ["mkdir -p static && cp -r library-app/dist/* static/"]
+
+[deploy]
+startCommand = "python railway_server.py"

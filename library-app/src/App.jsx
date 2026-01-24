@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import './App.css';
 
-// API Base URL
-const API_URL = 'http://localhost:5000/api';
+// API Base URL - use relative path for production
+const API_URL = '/api';
 
 // Category definitions with colors
 const CATEGORIES = [
