@@ -15,6 +15,8 @@ CORS(app)
 
 # 資料檔案路徑
 DATA_FILE = Path(__file__).parent / "data" / "books.json"
+LAST_MTIME = 0
+CACHED_BOOKS = None
 
 # 分類
 CATEGORIES = [
@@ -23,17 +25,39 @@ CATEGORIES = [
 ]
 
 def load_books():
-    """載入書籍資料"""
+    """載入書籍資料 (含快取)"""
+    global CACHED_BOOKS, LAST_MTIME
+    
     if DATA_FILE.exists():
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            current_mtime = DATA_FILE.stat().st_mtime
+            
+            if CACHED_BOOKS is not None and current_mtime == LAST_MTIME:
+                return CACHED_BOOKS
+                
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                books = json.load(f)
+                
+            CACHED_BOOKS = books
+            LAST_MTIME = current_mtime
+            return books
+        except Exception as e:
+            print(f"Error loading books: {e}")
+            return []
     return []
 
 def save_books(books):
     """儲存書籍資料"""
+    global CACHED_BOOKS, LAST_MTIME
+    
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(books, f, ensure_ascii=False, indent=2)
+        
+    # 更新快取
+    CACHED_BOOKS = books
+    if DATA_FILE.exists():
+        LAST_MTIME = DATA_FILE.stat().st_mtime
 
 # ========== API 路由 ==========
 
