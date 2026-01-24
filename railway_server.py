@@ -54,7 +54,9 @@ def add_book():
         'id': new_id,
         'title': data.get('title', ''),
         'author': data.get('author', '未分類作者'),
-        'category': data.get('category', '新書-待借')
+        'category': data.get('category', '新書-待借'),
+        'date': data.get('date', ''),
+        'note': data.get('note', '')
     }
     books.insert(0, new_book)
     save_books(books)
@@ -74,7 +76,9 @@ def update_book(book_id):
                 'id': book_id,
                 'title': data.get('title', book.get('title')),
                 'author': data.get('author', book.get('author')),
-                'category': data.get('category', book.get('category'))
+                'category': data.get('category', book.get('category')),
+                'date': data.get('date', book.get('date', '')),
+                'note': data.get('note', book.get('note', ''))
             }
             updated_book = books[i]
             break
