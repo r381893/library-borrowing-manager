@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import './App.css';
 
-// API Base URL - use relative path for production
-const API_URL = '/api';
+// API Base URL - localhost for development, relative for production
+const API_URL = import.meta.env.DEV ? 'http://localhost:5000/api' : '/api';
 
 // Category definitions with colors
 const CATEGORIES = [
@@ -31,7 +31,7 @@ function App() {
   const [activeCategory, setActiveCategory] = useState('全部');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [sortBy, setSortBy] = useState('author');
+  const [sortBy, setSortBy] = useState('added'); // 預設依加入時間 (最新在最上面)
   const [viewMode, setViewMode] = useState('table');
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -183,6 +183,10 @@ function App() {
     });
 
     result.sort((a, b) => {
+      if (sortBy === 'added') {
+        // ID 越大代表越新，排前面
+        return (b.id || 0) - (a.id || 0);
+      }
       if (sortBy === 'author') {
         if (a.author === '未分類作者' && b.author !== '未分類作者') return 1;
         if (a.author !== '未分類作者' && b.author === '未分類作者') return -1;
@@ -323,6 +327,7 @@ function App() {
         </div>
 
         <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="sort-select">
+          <option value="added">依加入時間 (最新)</option>
           <option value="author">依作者筆畫排序</option>
           <option value="title">依書名筆畫排序</option>
         </select>
@@ -372,6 +377,8 @@ function App() {
                 <th className="col-category">分類</th>
                 <th className="col-title">書名</th>
                 <th className="col-author">作者</th>
+                <th className="col-date" style={{ width: '120px' }}>日期</th>
+                <th className="col-note" style={{ width: '120px' }}>備註/借閱人</th>
                 <th className="col-actions">操作</th>
               </tr>
             </thead>
@@ -423,6 +430,33 @@ function App() {
                         book.author || '未分類作者'
                       )}
                     </td>
+                    <td className="col-date">
+                      {isEditing ? (
+                        <input
+                          value={editForm.date || ''}
+                          onChange={(e) => handleChange(e, 'date')}
+                          style={{ width: '100%' }}
+                          placeholder="YYYY-MM-DD"
+                        />
+                      ) : (
+                        <span style={{ fontSize: '0.9rem', color: book.date ? 'inherit' : '#9ca3af' }}>
+                          {book.date || '-'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="col-note">
+                      {isEditing ? (
+                        <input
+                          value={editForm.note || ''}
+                          onChange={(e) => handleChange(e, 'note')}
+                          style={{ width: '100%' }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: '0.9rem', color: book.note ? 'inherit' : '#9ca3af' }}>
+                          {book.note || '-'}
+                        </span>
+                      )}
+                    </td>
                     <td className="col-actions">
                       {isEditing ? (
                         <div className="table-actions">
@@ -461,6 +495,10 @@ function App() {
                   <>
                     <input value={editForm.title || ''} onChange={(e) => handleChange(e, 'title')} placeholder="書名" style={{ marginBottom: '0.5rem' }} />
                     <input value={editForm.author || ''} onChange={(e) => handleChange(e, 'author')} placeholder="作者" className="author-input" />
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <input value={editForm.date || ''} onChange={(e) => handleChange(e, 'date')} placeholder="日期" style={{ flex: 1, fontSize: '0.85rem' }} />
+                      <input value={editForm.note || ''} onChange={(e) => handleChange(e, 'note')} placeholder="備註" style={{ flex: 1, fontSize: '0.85rem' }} />
+                    </div>
                     <select value={editForm.category || ''} onChange={(e) => handleChange(e, 'category')} style={{ marginTop: '0.5rem' }}>
                       {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
                         <option key={cat.id} value={cat.id}>{cat.label}</option>
@@ -475,6 +513,14 @@ function App() {
                   <>
                     <div className="book-category-badge" style={{ background: catColor }}>{book.category}</div>
                     <div className="book-title">{book.title}</div>
+
+                    {(book.date || book.note) && (
+                      <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'flex', gap: '8px' }}>
+                        {book.date && <span>📅 {book.date}</span>}
+                        {book.note && <span>📝 {book.note}</span>}
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
                       <div style={{ color: 'var(--text-muted)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <Users size={16} />

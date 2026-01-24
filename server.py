@@ -48,17 +48,50 @@ def read_all_books():
                 for _, row in df.iterrows():
                     title = str(row['書名']) if pd.notna(row['書名']) else ''
                     author = str(row['作者']) if pd.notna(row['作者']) else '未分類作者'
+                    
+                    # 嘗試讀取額外欄位
+                    date = ''
+                    if '到期日' in row:
+                        date = str(row['到期日']) if pd.notna(row['到期日']) else ''
+                    elif len(df.columns) > 2: # 嘗試依位置讀取
+                        val = row.iloc[2]
+                        date = str(val) if pd.notna(val) else ''
+
+                    note = ''
+                    if 'ISBN' in row: # 在待借工作表中，借閱人似乎被標記為 ISBN
+                        note = str(row['ISBN']) if pd.notna(row['ISBN']) else ''
+                    elif len(df.columns) > 3: # 嘗試依位置讀取
+                        val = row.iloc[3]
+                        note = str(val) if pd.notna(val) else ''
+
+                    # 格式化日期 (移除時間部分)
+                    if date and ' ' in date:
+                        date = date.split(' ')[0]
+
                     if title and title != '書名':
                         books.append({
                             'id': book_id,
                             'title': title.strip(),
                             'author': author.strip() if author else '未分類作者',
-                            'category': sheet_name
+                            'category': sheet_name,
+                            'date': date,
+                            'note': note
                         })
                         book_id += 1
             else:
-                # 沒有標準欄位，假設第一欄是作者，第二欄是書名（或只有書名）
-                df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                # 沒有標準欄位，假設第一欄是作者，第二欄是書名
+                header = None
+                # 檢查第一列是否為標題
+                first_row = pd.read_excel(xls, sheet_name=sheet_name, nrows=1, header=None).iloc[0]
+                if str(first_row[0]) in ['作者'] and str(first_row[1]) in ['書名']:
+                    df_raw = pd.read_excel(xls, sheet_name=sheet_name) # 有標題
+                    # 遞迴或重新處理... 這裡簡單處理，因為上面已經cover了有標題的情況
+                    # 實際上如果代碼走到這，表示 has_author/has_title 為 False，但第一列如果是標題，pandas 應該會抓到
+                    # 所以這裡通常是處理真的沒有標題的情況
+                    df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                else:
+                    df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+
                 for _, row in df_raw.iterrows():
                     if len(row) >= 2:
                         author = str(row[0]) if pd.notna(row[0]) else '未分類作者'
@@ -67,12 +100,29 @@ def read_all_books():
                         author = '未分類作者'
                         title = str(row[0]) if pd.notna(row[0]) else ''
                     
+                    # 嘗試讀取日期 (col 2) 和 備註 (col 3)
+                    date = ''
+                    if len(row) > 2:
+                        val = row[2]
+                        date = str(val) if pd.notna(val) else ''
+                    
+                    note = ''
+                    if len(row) > 3:
+                        val = row[3]
+                        note = str(val) if pd.notna(val) else ''
+
+                    # 格式化日期
+                    if date and ' ' in date:
+                        date = date.split(' ')[0]
+                    
                     if title and title not in ['作者', '書名']:
                         books.append({
                             'id': book_id,
                             'title': title.strip(),
                             'author': author.strip() if author else '未分類作者',
-                            'category': sheet_name
+                            'category': sheet_name,
+                            'date': date,
+                            'note': note
                         })
                         book_id += 1
                         
