@@ -142,6 +142,11 @@ function App() {
     setEditForm({ ...editForm, [field]: e.target.value });
   };
 
+  const handleQuickFilter = (text) => {
+    if (!text || text === '-' || text === '未分類作者') return;
+    setSearchTerm(text);
+  };
+
   const addNewBook = async () => {
     const title = prompt('請輸入新書名');
     if (!title) return;
@@ -176,7 +181,8 @@ function App() {
     let result = books.filter(book => {
       const matchesSearch =
         book.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        book.author?.toLowerCase().includes(searchTerm.toLowerCase());
+        book.author?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        book.note?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory =
         activeCategory === '全部' || book.category === activeCategory;
       return matchesSearch && matchesCategory;
@@ -314,7 +320,7 @@ function App() {
           <Search className="search-icon" />
           <input
             type="text"
-            placeholder="搜尋書名或作者..."
+            placeholder="搜尋書名、作者或備註..."
             className="search-input"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -416,7 +422,13 @@ function App() {
                           style={{ width: '100%' }}
                         />
                       ) : (
-                        book.title
+                        <span
+                          className="clickable-text"
+                          onClick={() => handleQuickFilter(book.title)}
+                          title="點擊依書名篩選"
+                        >
+                          {book.title}
+                        </span>
                       )}
                     </td>
                     <td className="col-author">
@@ -427,7 +439,13 @@ function App() {
                           style={{ width: '100%' }}
                         />
                       ) : (
-                        book.author || '未分類作者'
+                        <span
+                          className="clickable-text"
+                          onClick={() => handleQuickFilter(book.author)}
+                          title="點擊依作者篩選"
+                        >
+                          {book.author || '未分類作者'}
+                        </span>
                       )}
                     </td>
                     <td className="col-date">
@@ -452,7 +470,12 @@ function App() {
                           style={{ width: '100%' }}
                         />
                       ) : (
-                        <span style={{ fontSize: '0.9rem', color: book.note ? 'inherit' : '#9ca3af' }}>
+                        <span
+                          className={book.note ? "clickable-text" : ""}
+                          style={{ fontSize: '0.9rem', color: book.note ? 'inherit' : '#9ca3af' }}
+                          onClick={() => handleQuickFilter(book.note)}
+                          title={book.note ? "點擊依備註篩選" : ""}
+                        >
                           {book.note || '-'}
                         </span>
                       )}

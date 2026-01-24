@@ -515,3 +515,4 @@
     flex: 1;
   }
 }
+.clickable-text { cursor: pointer; transition: color 0.2s; } .clickable-text:hover { color: #646cff; text-decoration: underline; }
