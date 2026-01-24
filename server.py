@@ -14,6 +14,8 @@ CORS(app)  # 允許跨域請求
 
 # Excel 檔案路徑
 EXCEL_FILE = os.path.join(os.path.dirname(__file__), '圖書館借書清單.xlsx')
+LAST_MTIME = 0
+CACHED_BOOKS = None
 
 # 分類對應的工作表名稱
 CATEGORIES = [
@@ -28,9 +30,24 @@ CATEGORIES = [
 ]
 
 def read_all_books():
-    """從 Excel 讀取所有書籍"""
-    books = []
+    """從 Excel 讀取所有書籍 (含快取機制)"""
+    global LAST_MTIME, CACHED_BOOKS
+    
     try:
+        # 檢查檔案是否存在
+        if not os.path.exists(EXCEL_FILE):
+             print(f"Error: 找不到檔案 {EXCEL_FILE}")
+             return []
+
+        # Check file modification time
+        current_mtime = os.path.getmtime(EXCEL_FILE)
+        
+        # 如果有快取且檔案沒變，直接回傳快取
+        if CACHED_BOOKS is not None and current_mtime == LAST_MTIME:
+            return CACHED_BOOKS
+
+        print(f"Reading Excel file: {EXCEL_FILE}...")
+        books = []
         xls = pd.ExcelFile(EXCEL_FILE)
         book_id = 0
         
@@ -82,23 +99,43 @@ def read_all_books():
                 # 沒有標準欄位，假設第一欄是作者，第二欄是書名
                 header = None
                 # 檢查第一列是否為標題
-                first_row = pd.read_excel(xls, sheet_name=sheet_name, nrows=1, header=None).iloc[0]
-                if str(first_row[0]) in ['作者'] and str(first_row[1]) in ['書名']:
-                    df_raw = pd.read_excel(xls, sheet_name=sheet_name) # 有標題
-                    # 遞迴或重新處理... 這裡簡單處理，因為上面已經cover了有標題的情況
-                    # 實際上如果代碼走到這，表示 has_author/has_title 為 False，但第一列如果是標題，pandas 應該會抓到
-                    # 所以這裡通常是處理真的沒有標題的情況
-                    df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-                else:
-                    df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                try:
+                    first_row = pd.read_excel(xls, sheet_name=sheet_name, nrows=1, header=None).iloc[0]
+                    if len(first_row) >= 2 and str(first_row[0]) in ['作者'] and str(first_row[1]) in ['書名']:
+                        # 上面已經處理過有標題的情況 (透過 pd.read_excel(sheet_name) 就會讀 header)
+                        # 但如果 has_author, has_title 判斷失敗 (例如欄位名有空格)，這裡再次確認
+                         df_raw = pd.read_excel(xls, sheet_name=sheet_name)
+                    else:
+                         df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                except:
+                     df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+
+                # 如果 df_raw 是空的或讀取失敗
+                if df_raw.empty:
+                    continue
+
+                # 處理 DataFrame (無標題或 column name 不對)
+                # 簡單起見，如果上面沒抓到，這裡統一當作無標題處理，避開第一行如果是標題
+                is_header_row = True
+                
+                # 如果真的是 header=None 讀進來的，columns 是 0, 1, 2...
+                # 如果是有 header 讀進來的，columns 是 Index(['作者', ...])，需要轉成統一格式
+                # 這裡為了保險，重讀一次 header=None
+                
+                df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
 
                 for _, row in df_raw.iterrows():
+                    if len(row) == 0: continue
+                    
                     if len(row) >= 2:
                         author = str(row[0]) if pd.notna(row[0]) else '未分類作者'
                         title = str(row[1]) if pd.notna(row[1]) else ''
                     else:
+                         # 單欄情況
                         author = '未分類作者'
                         title = str(row[0]) if pd.notna(row[0]) else ''
+                    
+                    if title in ['書名', '作者']: continue # 跳過標題行
                     
                     # 嘗試讀取日期 (col 2) 和 備註 (col 3)
                     date = ''
@@ -115,21 +152,27 @@ def read_all_books():
                     if date and ' ' in date:
                         date = date.split(' ')[0]
                     
-                    if title and title not in ['作者', '書名']:
-                        books.append({
-                            'id': book_id,
-                            'title': title.strip(),
-                            'author': author.strip() if author else '未分類作者',
-                            'category': sheet_name,
-                            'date': date,
-                            'note': note
-                        })
-                        book_id += 1
+                    books.append({
+                        'id': book_id,
+                        'title': title.strip(),
+                        'author': author.strip() if author else '未分類作者',
+                        'category': sheet_name,
+                        'date': date,
+                        'note': note
+                    })
+                    book_id += 1
                         
+        # 更新快取
+        CACHED_BOOKS = books
+        LAST_MTIME = current_mtime
+        print(f"Read {len(books)} books. Updated cache.")
+        return books
+        
     except Exception as e:
         print(f"讀取 Excel 錯誤: {e}")
-        
-    return books
+        import traceback
+        traceback.print_exc()
+        return CACHED_BOOKS if CACHED_BOOKS is not None else []
 
 def save_all_books(books):
     """將所有書籍寫回 Excel"""
@@ -159,6 +202,11 @@ def save_all_books(books):
                     # 寫入空的工作表以保留結構
                     pd.DataFrame(columns=['作者', '書名']).to_excel(writer, sheet_name=cat, index=False)
                     
+        # 更新快取，避免下次讀取時重讀
+        global CACHED_BOOKS, LAST_MTIME
+        CACHED_BOOKS = books
+        LAST_MTIME = os.path.getmtime(EXCEL_FILE)
+        
         return True
     except Exception as e:
         print(f"寫入 Excel 錯誤: {e}")

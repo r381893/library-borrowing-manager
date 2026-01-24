@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell
+} from 'recharts';
 import './App.css';
 
 // API Base URL - localhost for development, relative for production
@@ -17,6 +21,106 @@ const CATEGORIES = [
   { id: '已看-3447本', label: '✅ 已看(主)', color: '#22c55e' },
   { id: '已看-1', label: '✅ 已看(1)', color: '#84cc16' },
 ];
+
+const StatsDashboard = ({ books, categories }) => {
+  const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c', '#d0ed57', '#ffc0cb', '#4ade80'];
+
+  const categoryData = useMemo(() => {
+    return categories
+      .filter(c => c.id !== '全部')
+      .map(cat => ({
+        name: cat.label.split(' ')[1] || cat.label, // 移除 emoji
+        value: books.filter(b => b.category === cat.id).length,
+        color: cat.color
+      }))
+      .filter(d => d.value > 0);
+  }, [books, categories]);
+
+  const authorData = useMemo(() => {
+    const counts = {};
+    books.forEach(b => {
+      const author = b.author || '未分類作者';
+      if (author !== '未分類作者') {
+        counts[author] = (counts[author] || 0) + 1;
+      }
+    });
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [books]);
+
+  return (
+    <div className="stats-dashboard animate-fade-in">
+      {/* 總覽卡片 */}
+      <div className="stats-cards">
+        <div className="stat-card">
+          <h3>📚 總藏書</h3>
+          <p className="stat-value">{books.length}</p>
+        </div>
+        <div className="stat-card">
+          <h3>✍️ 作者總數</h3>
+          <p className="stat-value">{new Set(books.map(b => b.author)).size}</p>
+        </div>
+        <div className="stat-card">
+          <h3>📅 今日新增</h3>
+          <p className="stat-value">
+            {books.filter(b => b.date === new Date().toISOString().split('T')[0]).length || '-'}
+          </p>
+        </div>
+      </div>
+
+      <div className="charts-container">
+        {/* 分類分佈 */}
+        <div className="chart-wrapper">
+          <h3>📖 書籍分類分佈</h3>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={categoryData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {categoryData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Top 10 作者 */}
+        <div className="chart-wrapper">
+          <h3>🏆 Top 10 作者</h3>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <BarChart data={authorData} layout="vertical" margin={{ left: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" />
+                <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+                <RechartsTooltip />
+                <Bar dataKey="count" fill="#8884d8" radius={[0, 4, 4, 0]}>
+                  {authorData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ITEMS_PER_PAGE = 50;
 
@@ -341,6 +445,12 @@ function App() {
         {/* View Toggle */}
         <div className="view-toggle">
           <button
+            className={`view-btn ${viewMode === 'stats' ? 'active' : ''}`}
+            onClick={() => setViewMode('stats')}
+          >
+            <BarChart2 size={18} /> 統計
+          </button>
+          <button
             className={`view-btn ${viewMode === 'card' ? 'active' : ''}`}
             onClick={() => setViewMode('card')}
           >
@@ -367,11 +477,16 @@ function App() {
       </div>
 
       {/* Results count */}
-      <div className="results-info animate-fade-in" style={{ animationDelay: '0.25s' }}>
-        顯示 <strong>{filteredBooks.length.toLocaleString()}</strong> 本書籍
-        {searchTerm && <span> (搜尋: "{searchTerm}")</span>}
-        {totalPages > 1 && <span> • 第 {currentPage} / {totalPages} 頁</span>}
-      </div>
+      {viewMode !== 'stats' && (
+        <div className="results-info animate-fade-in" style={{ animationDelay: '0.25s' }}>
+          顯示 <strong>{filteredBooks.length.toLocaleString()}</strong> 本書籍
+          {searchTerm && <span> (搜尋: "{searchTerm}")</span>}
+          {totalPages > 1 && <span> • 第 {currentPage} / {totalPages} 頁</span>}
+        </div>
+      )}
+
+      {/* STATS VIEW */}
+      {viewMode === 'stats' && <StatsDashboard books={books} categories={CATEGORIES} />}
 
       {/* TABLE VIEW */}
       {viewMode === 'table' && (
