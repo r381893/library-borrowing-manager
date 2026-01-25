@@ -51,6 +51,24 @@ const StatsDashboard = ({ books, categories }) => {
       .slice(0, 10);
   }, [books]);
 
+  const borrowerData = useMemo(() => {
+    const counts = {};
+    books.forEach(b => {
+      const note = b.note ? String(b.note).trim() : '';
+      // Exclude empty notes and likely ISBNs (simple check for mostly digits 10-13 chars)
+      const isISBN = /^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/.test(note);
+
+      if (note && !isISBN) {
+        counts[note] = (counts[note] || 0) + 1;
+      }
+    });
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [books]);
+
   return (
     <div className="stats-dashboard animate-fade-in">
       {/* 總覽卡片 */}
@@ -118,6 +136,26 @@ const StatsDashboard = ({ books, categories }) => {
           </div>
         </div>
       </div>
+
+      {/* Top 10 借閱人 */}
+      <div className="chart-wrapper">
+        <h3>👥 Top 10 借閱人</h3>
+        <div style={{ width: '100%', height: 300 }}>
+          <ResponsiveContainer>
+            <BarChart data={borrowerData} layout="vertical" margin={{ left: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" />
+              <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+              <RechartsTooltip />
+              <Bar dataKey="count" fill="#8884d8" radius={[0, 4, 4, 0]}>
+                {borrowerData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   );
 };
@@ -137,7 +175,33 @@ function App() {
   const [editForm, setEditForm] = useState({});
   const [sortBy, setSortBy] = useState('added'); // 預設依加入時間 (最新在最上面)
   const [viewMode, setViewMode] = useState('table');
+  // Helper: Sanitize title for search (preserve spaces)
+  const sanitizeForSearch = (title) => {
+    if (!title) return '';
+    // 1. Remove content in parentheses
+    let s = String(title).replace(/[\(（].*?[\)）]/g, '');
+    // 2. Take part before colon
+    s = s.split(/[:：]/)[0];
+    // 3. Replace special chars with space (instead of removing them)
+    s = s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ');
+    // 4. Collapse spaces
+    return s.replace(/\s+/g, ' ').trim();
+  };
+
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Add Book Modal State
+  const [isAddModalOpen, setAddModalOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    title: '',
+    author: '',
+    date: '',
+    note: '',
+    category: '新書-待借'
+  });
+
+  const BORROWERS = ['州家庭', '妹', '妹(網路)', '州家庭(網路)'];
+  const [customBorrower, setCustomBorrower] = useState('');
 
   // Theme state
   const [theme, setTheme] = useState(() => {
@@ -251,16 +315,31 @@ function App() {
     setSearchTerm(text);
   };
 
-  const addNewBook = async () => {
-    const title = prompt('請輸入新書名');
-    if (!title) return;
+  const addNewBook = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setAddForm({
+      title: '',
+      author: '未分類作者',
+      date: today,
+      note: '',
+      category: activeCategory === '全部' ? '新書-待借' : activeCategory
+    });
+    setCustomBorrower('');
+    setAddModalOpen(true);
+  };
+
+  const handleAddSubmit = async (e) => {
+    e.preventDefault();
+    if (!addForm.title) return;
 
     setSaving(true);
     try {
+      // Use custom borrower if "Other" or typed
+      const noteToSave = addForm.note === 'Other' ? customBorrower : addForm.note;
+
       const newBook = {
-        title,
-        author: '未分類作者',
-        category: activeCategory === '全部' ? '新書-待借' : activeCategory
+        ...addForm,
+        note: noteToSave
       };
 
       const res = await fetch(`${API_URL}/books`, {
@@ -268,11 +347,13 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newBook)
       });
+
       if (!res.ok) throw new Error('新增失敗');
 
       const savedBook = await res.json();
       setBooks([savedBook, ...books]);
       setLastSaved(new Date());
+      setAddModalOpen(false);
     } catch (err) {
       alert('新增失敗: ' + err.message);
     } finally {
@@ -473,6 +554,31 @@ function App() {
             <RefreshCw size={18} style={{ marginRight: '6px' }} />
             重新載入
           </button>
+
+          {activeCategory === '新書-待借' && filteredBooks.length > 0 && (
+            <button
+              className="btn-secondary"
+              style={{ color: '#3b82f6', borderColor: '#3b82f6' }}
+              onClick={() => {
+                const batchSize = 5;
+                const booksToSearch = filteredBooks.slice(0, batchSize);
+                if (window.confirm(`為避免卡頓，將優先開啟前 ${booksToSearch.length} 本書的查詢分頁。\n\n搜尋關鍵字將自動優化（去除備註、保留空格）。`)) {
+                  booksToSearch.forEach((book, i) => {
+                    let term = book.note && (book.note.match(/^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/))
+                      ? (book.note.match(/^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/)[0])
+                      : sanitizeForSearch(book.title);
+
+                    setTimeout(() => {
+                      window.open(`https://webpacx.ksml.edu.tw/search?q=${encodeURIComponent(term)}`, '_blank');
+                    }, i * 500);
+                  });
+                }
+              }}
+            >
+              <Search size={18} style={{ marginRight: '6px' }} />
+              查詢前 5 本
+            </button>
+          )}
         </div>
       </div>
 
@@ -508,6 +614,8 @@ function App() {
                 const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + i;
                 const catColor = getCategoryColor(book.category);
                 const isEditing = editingId === book.id;
+
+
 
                 return (
                   <tr key={book.id}>
@@ -603,6 +711,19 @@ function App() {
                         </div>
                       ) : (
                         <div className="table-actions">
+
+                          <button
+                            className="btn-icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(book.title);
+                              alert(`已複製書名: ${book.title}`);
+                            }}
+                            title="複製完整書名"
+                            style={{ color: '#8b5cf6' }}
+                          >
+                            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>C</span>
+                          </button>
                           <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}>
                             <Edit2 size={16} />
                           </button>
@@ -665,6 +786,19 @@ function App() {
                         {book.author || '未分類作者'}
                       </div>
                       <div style={{ display: 'flex', gap: '4px' }}>
+
+                        <button
+                          className="btn-icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(book.title);
+                            alert(`已複製書名: ${book.title}`);
+                          }}
+                          title="複製完整書名"
+                          style={{ color: '#8b5cf6' }}
+                        >
+                          <span style={{ fontSize: '14px', fontWeight: 'bold' }}>C</span>
+                        </button>
                         <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}><Edit2 size={18} /></button>
                         <button className="btn-icon" onClick={() => deleteBook(book.id)} title="刪除" style={{ color: '#f87171' }} disabled={saving}><Trash2 size={18} /></button>
                       </div>
@@ -717,6 +851,110 @@ function App() {
       {filteredBooks.length === 0 && (
         <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', fontSize: '1.1rem' }}>
           沒有找到相關書籍
+        </div>
+      )}
+
+      {/* ADD BOOK MODAL */}
+      {isAddModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">新增書籍</h3>
+              <button className="modal-close" onClick={() => setAddModalOpen(false)}>
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSubmit}>
+              <div className="form-group">
+                <label className="form-label">書名 *</label>
+                <input
+                  autoFocus
+                  className="form-input"
+                  value={addForm.title}
+                  onChange={e => setAddForm({ ...addForm, title: e.target.value })}
+                  placeholder="請輸入書名"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">作者</label>
+                <input
+                  className="form-input"
+                  value={addForm.author}
+                  onChange={e => setAddForm({ ...addForm, author: e.target.value })}
+                  placeholder="作者 (預設: 未分類作者)"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">日期</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={addForm.date}
+                  onChange={e => setAddForm({ ...addForm, date: e.target.value })}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">借閱人 / 備註</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <select
+                    className="form-input"
+                    value={BORROWERS.includes(addForm.note) ? addForm.note : (addForm.note ? 'Other' : '')}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'Other') {
+                        setAddForm({ ...addForm, note: 'Other' });
+                        setCustomBorrower('');
+                      } else {
+                        setAddForm({ ...addForm, note: val });
+                      }
+                    }}
+                  >
+                    <option value="">(無)</option>
+                    {BORROWERS.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="Other">自行輸入...</option>
+                  </select>
+                </div>
+                {addForm.note === 'Other' && (
+                  <input
+                    style={{ marginTop: '0.5rem' }}
+                    className="form-input"
+                    value={customBorrower}
+                    onChange={e => setCustomBorrower(e.target.value)}
+                    placeholder="請輸入借閱人或備註"
+                  />
+                )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">分類</label>
+                <select
+                  className="form-input"
+                  value={addForm.category}
+                  onChange={e => setAddForm({ ...addForm, category: e.target.value })}
+                >
+                  {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn-secondary" onClick={() => setAddModalOpen(false)}>
+                  取消
+                </button>
+                <button type="submit" className="btn-primary" disabled={saving}>
+                  {saving ? '儲存中...' : '確認新增'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -194,13 +194,15 @@ def save_all_books(books):
             for cat, cat_books in categorized.items():
                 if cat_books:
                     df = pd.DataFrame([{
-                        '作者': b.get('author', ''),
-                        '書名': b.get('title', '')
+                        '作者': b.get('author', '未分類作者'),
+                        '書名': b.get('title', ''),
+                        '到期日': b.get('date', ''),
+                        'ISBN': b.get('note', '')
                     } for b in cat_books])
                     df.to_excel(writer, sheet_name=cat, index=False)
                 else:
                     # 寫入空的工作表以保留結構
-                    pd.DataFrame(columns=['作者', '書名']).to_excel(writer, sheet_name=cat, index=False)
+                    pd.DataFrame(columns=['作者', '書名', '到期日', 'ISBN']).to_excel(writer, sheet_name=cat, index=False)
                     
         # 更新快取，避免下次讀取時重讀
         global CACHED_BOOKS, LAST_MTIME
@@ -231,7 +233,9 @@ def add_book():
         'id': new_id,
         'title': data.get('title', ''),
         'author': data.get('author', '未分類作者'),
-        'category': data.get('category', '新書-待借')
+        'category': data.get('category', '新書-待借'),
+        'date': data.get('date', ''),
+        'note': data.get('note', '')
     }
     books.insert(0, new_book)
     
@@ -252,7 +256,9 @@ def update_book(book_id):
                 'id': book_id,
                 'title': data.get('title', book['title']),
                 'author': data.get('author', book['author']),
-                'category': data.get('category', book['category'])
+                'category': data.get('category', book['category']),
+                'date': data.get('date', book.get('date', '')),
+                'note': data.get('note', book.get('note', ''))
             }
             break
     
