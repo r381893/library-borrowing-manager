@@ -200,7 +200,7 @@ function App() {
     category: '新書-待借'
   });
 
-  const BORROWERS = ['州家庭', '妹', '妹(網路)', '州家庭(網路)'];
+  const BORROWERS = ['州家庭', '妹', '妹(網路)', '州家庭(網路)', '州個人', '州個人(網路)'];
   const [customBorrower, setCustomBorrower] = useState('');
 
   // Theme state

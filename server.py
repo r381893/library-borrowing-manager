@@ -8,6 +8,19 @@ from flask_cors import CORS
 import pandas as pd
 import os
 from datetime import datetime
+import logging
+import traceback
+
+# 設定 Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("server.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)  # 允許跨域請求
@@ -36,7 +49,7 @@ def read_all_books():
     try:
         # 檢查檔案是否存在
         if not os.path.exists(EXCEL_FILE):
-             print(f"Error: 找不到檔案 {EXCEL_FILE}")
+             logger.error(f"Error: 找不到檔案 {EXCEL_FILE}")
              return []
 
         # Check file modification time
@@ -165,13 +178,12 @@ def read_all_books():
         # 更新快取
         CACHED_BOOKS = books
         LAST_MTIME = current_mtime
-        print(f"Read {len(books)} books. Updated cache.")
+        logger.info(f"Read {len(books)} books. Updated cache.")
         return books
         
     except Exception as e:
-        print(f"讀取 Excel 錯誤: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"讀取 Excel 錯誤: {e}")
+        logger.error(traceback.format_exc())
         return CACHED_BOOKS if CACHED_BOOKS is not None else []
 
 def save_all_books(books):
@@ -209,9 +221,11 @@ def save_all_books(books):
         CACHED_BOOKS = books
         LAST_MTIME = os.path.getmtime(EXCEL_FILE)
         
+        logger.info("Successfully saved books to Excel.")
         return True
     except Exception as e:
-        print(f"寫入 Excel 錯誤: {e}")
+        logger.error(f"寫入 Excel 錯誤: {e}")
+        logger.error(traceback.format_exc())
         return False
 
 # API 路由
@@ -225,24 +239,38 @@ def get_books():
 @app.route('/api/books', methods=['POST'])
 def add_book():
     """新增書籍"""
-    data = request.json
-    books = read_all_books()
-    
-    new_id = max([b['id'] for b in books], default=-1) + 1
-    new_book = {
-        'id': new_id,
-        'title': data.get('title', ''),
-        'author': data.get('author', '未分類作者'),
-        'category': data.get('category', '新書-待借'),
-        'date': data.get('date', ''),
-        'note': data.get('note', '')
-    }
-    books.insert(0, new_book)
-    
-    if save_all_books(books):
-        return jsonify(new_book), 201
-    else:
-        return jsonify({'error': '儲存失敗'}), 500
+    try:
+        data = request.json
+        logger.info(f"Adding new book: {data.get('title', 'Unknown')}")
+        
+        current_books = read_all_books()
+        # Create a copy to avoid modifying cache before save success
+        books = list(current_books)
+        
+        new_id = max([b['id'] for b in books], default=-1) + 1
+        new_book = {
+            'id': new_id,
+            'title': data.get('title', ''),
+            'author': data.get('author', '未分類作者'),
+            'category': data.get('category', '新書-待借'),
+            'date': data.get('date', ''),
+            'note': data.get('note', '')
+        }
+        
+        # Insert at the beginning
+        books.insert(0, new_book)
+        
+        if save_all_books(books):
+            logger.info(f"Book added successfully: ID {new_id}")
+            return jsonify(new_book), 201
+        else:
+            logger.error("Failed to save book to Excel")
+            return jsonify({'error': '儲存失敗'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in add_book: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/books/<int:book_id>', methods=['PUT'])
 def update_book(book_id):
@@ -311,4 +339,4 @@ if __name__ == '__main__':
     print(f"Excel 檔案: {EXCEL_FILE}")
     print(f"API 網址: http://localhost:5000")
     print("=" * 50)
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=True, port=5000, use_reloader=False) # Disable reloader to prevent double loops in some envs
