@@ -3,12 +3,14 @@
 Python Flask 後端 + 靜態前端
 """
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
 import pandas as pd
 import json
 import os
 from pathlib import Path
+from datetime import datetime
+import tempfile
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
@@ -120,6 +122,60 @@ def delete_book(book_id):
     books = [b for b in books if b.get('id') != book_id]
     save_books(books)
     return jsonify({'success': True})
+
+@app.route('/api/export', methods=['GET'])
+def export_books():
+    """匯出 Excel 檔案 (JSON -> Excel)"""
+    try:
+        books = load_books()
+        
+        # 分組
+        categorized = {cat: [] for cat in CATEGORIES}
+        for book in books:
+            cat = book.get('category', '新書-待借')
+            if cat in categorized:
+                categorized[cat].append(book)
+            else:
+                categorized['新書-待借'].append(book)
+
+        # 建立暫存檔
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+            
+        # 寫入 Excel
+        with pd.ExcelWriter(tmp_path, engine='openpyxl') as writer:
+            for cat in CATEGORIES:
+                cat_books = categorized[cat]
+                if cat_books:
+                    df = pd.DataFrame([{
+                        '作者': b.get('author', '未分類作者'),
+                        '書名': b.get('title', ''),
+                        '到期日': b.get('date', ''),
+                        'ISBN': b.get('note', '')
+                    } for b in cat_books])
+                    df.to_excel(writer, sheet_name=cat, index=False)
+                else:
+                    pd.DataFrame(columns=['作者', '書名', '到期日', 'ISBN']).to_excel(writer, sheet_name=cat, index=False)
+        
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name=f'library_books_{datetime.now().strftime("%Y%m%d")}.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    except Exception as e:
+        print(f"Export error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/reload', methods=['POST'])
+def force_reload():
+    """強制重讀 (清除快取)"""
+    global CACHED_BOOKS, LAST_MTIME
+    CACHED_BOOKS = None
+    LAST_MTIME = 0
+    books = load_books()
+    return jsonify({'message': 'Cache cleared', 'count': len(books)})
 
 # ========== 靜態檔案路由 ==========
 
