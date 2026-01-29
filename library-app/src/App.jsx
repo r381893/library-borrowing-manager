@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun } from 'lucide-react';
+import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -315,6 +315,21 @@ function App() {
     setSearchTerm(text);
   };
 
+  const handleExport = () => {
+    window.open(`${API_URL}/export`, '_blank');
+  };
+
+  const handleForceRefresh = async () => {
+    setLoading(true);
+    try {
+      await fetch(`${API_URL}/debug/reload`, { method: 'POST' });
+      await fetchBooks();
+    } catch (err) {
+      console.error(err);
+      fetchBooks();
+    }
+  };
+
   const addNewBook = () => {
     const today = new Date().toISOString().split('T')[0];
     setAddForm({
@@ -375,8 +390,8 @@ function App() {
 
     result.sort((a, b) => {
       if (sortBy === 'added') {
-        // ID 越大代表越新，排前面
-        return (b.id || 0) - (a.id || 0);
+        // ID 越小代表越前面 (通常是新書-待借)，排前面
+        return (a.id || 0) - (b.id || 0);
       }
       if (sortBy === 'author') {
         if (a.author === '未分類作者' && b.author !== '未分類作者') return 1;
@@ -424,7 +439,7 @@ function App() {
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
           請確認已執行 <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>python server.py</code>
         </p>
-        <button className="btn-primary" onClick={fetchBooks} style={{ marginTop: '1rem' }}>
+        <button className="btn-primary" onClick={handleForceRefresh} style={{ marginTop: '1rem' }}>
           <RefreshCw size={18} style={{ marginRight: '6px' }} />
           重試
         </button>
@@ -550,7 +565,11 @@ function App() {
             <Plus size={18} style={{ marginRight: '6px' }} />
             新增書籍
           </button>
-          <button className="btn-secondary" onClick={fetchBooks} disabled={saving}>
+          <button className="btn-secondary" onClick={handleExport} disabled={saving} title="匯出 Excel">
+            <Download size={18} style={{ marginRight: '6px' }} />
+            匯出
+          </button>
+          <button className="btn-secondary" onClick={handleForceRefresh} disabled={saving} title="強制重新載入">
             <RefreshCw size={18} style={{ marginRight: '6px' }} />
             重新載入
           </button>
