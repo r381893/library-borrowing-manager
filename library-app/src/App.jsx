@@ -393,6 +393,18 @@ function App() {
         // ID 越小代表越前面 (通常是新書-待借)，排前面
         return (a.id || 0) - (b.id || 0);
       }
+      if (sortBy === 'date_desc') {
+        // Empty dates go to the bottom
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return b.date.localeCompare(a.date);
+      }
+      if (sortBy === 'date_asc') {
+        // Empty dates go to the bottom
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date.localeCompare(b.date);
+      }
       if (sortBy === 'author') {
         if (a.author === '未分類作者' && b.author !== '未分類作者') return 1;
         if (a.author !== '未分類作者' && b.author === '未分類作者') return -1;
@@ -533,7 +545,9 @@ function App() {
         </div>
 
         <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="sort-select">
-          <option value="added">依加入時間 (最新)</option>
+          <option value="added">依加入時間 (Excel順序)</option>
+          <option value="date_desc">依日期 (最新在先)</option>
+          <option value="date_asc">依日期 (最舊在先)</option>
           <option value="author">依作者筆畫排序</option>
           <option value="title">依書名筆畫排序</option>
         </select>
