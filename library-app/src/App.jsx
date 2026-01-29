@@ -315,6 +315,29 @@ function App() {
     setSearchTerm(text);
   };
 
+  // 快速切換分類 (不需進入編輯模式，直接儲存)
+  const handleQuickCategoryChange = async (book, newCategory) => {
+    if (book.category === newCategory) return;
+
+    setSaving(true);
+    try {
+      const updatedBook = { ...book, category: newCategory };
+      const res = await fetch(`${API_URL}/books/${book.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedBook)
+      });
+      if (!res.ok) throw new Error('儲存失敗');
+
+      setBooks(books.map(b => b.id === book.id ? updatedBook : b));
+      setLastSaved(new Date());
+    } catch (err) {
+      alert('切換分類失敗: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleExport = () => {
     window.open(`${API_URL}/export`, '_blank');
   };
@@ -665,9 +688,27 @@ function App() {
                           ))}
                         </select>
                       ) : (
-                        <span className="table-category-badge" style={{ background: catColor }}>
-                          {book.category}
-                        </span>
+                        <select
+                          value={book.category}
+                          onChange={(e) => handleQuickCategoryChange(book, e.target.value)}
+                          disabled={saving}
+                          className="quick-category-select"
+                          style={{
+                            background: catColor,
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '4px 8px',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            fontWeight: '500'
+                          }}
+                          title="點擊直接切換分類 (自動儲存)"
+                        >
+                          {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
+                            <option key={cat.id} value={cat.id} style={{ background: '#fff', color: '#333' }}>{cat.id}</option>
+                          ))}
+                        </select>
                       )}
                     </td>
                     <td className="col-title">
