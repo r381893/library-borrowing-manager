@@ -267,7 +267,7 @@ function App() {
     setEditForm({});
   };
 
-  const saveEdit = async () => {
+  const saveEdit = async (exitEditMode = true) => {
     setSaving(true);
     try {
       const res = await fetch(`${API_URL}/books/${editingId}`, {
@@ -278,12 +278,30 @@ function App() {
       if (!res.ok) throw new Error('儲存失敗');
 
       setBooks(books.map(b => b.id === editingId ? { ...editForm } : b));
-      setEditingId(null);
+      if (exitEditMode) {
+        setEditingId(null);
+      }
       setLastSaved(new Date());
     } catch (err) {
       alert('儲存失敗: ' + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 自動儲存：當離開輸入框時觸發
+  const handleFieldBlur = () => {
+    if (editingId !== null) {
+      saveEdit(false); // 儲存但不離開編輯模式
+    }
+  };
+
+  // 按 Enter 鍵儲存並離開編輯模式
+  const handleFieldKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      saveEdit(true);
+    } else if (e.key === 'Escape') {
+      cancelEdit();
     }
   };
 
@@ -716,7 +734,10 @@ function App() {
                         <input
                           value={editForm.title || ''}
                           onChange={(e) => handleChange(e, 'title')}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleFieldKeyDown}
                           style={{ width: '100%' }}
+                          autoFocus
                         />
                       ) : (
                         <span
@@ -733,6 +754,8 @@ function App() {
                         <input
                           value={editForm.author || ''}
                           onChange={(e) => handleChange(e, 'author')}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleFieldKeyDown}
                           style={{ width: '100%' }}
                         />
                       ) : (
@@ -750,6 +773,8 @@ function App() {
                         <input
                           value={editForm.date || ''}
                           onChange={(e) => handleChange(e, 'date')}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleFieldKeyDown}
                           style={{ width: '100%' }}
                           placeholder="YYYY-MM-DD"
                         />
@@ -764,6 +789,8 @@ function App() {
                         <input
                           value={editForm.note || ''}
                           onChange={(e) => handleChange(e, 'note')}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleFieldKeyDown}
                           style={{ width: '100%' }}
                         />
                       ) : (
