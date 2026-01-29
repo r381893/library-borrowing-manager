@@ -160,10 +160,41 @@ def read_all_books():
         logger.error(traceback.format_exc())
         return CACHED_BOOKS if CACHED_BOOKS is not None else []
 
+def backup_excel():
+    """自動備份 Excel 檔案"""
+    try:
+        if not os.path.exists(EXCEL_FILE):
+            return
+        
+        # 建立備份資料夾
+        backup_dir = os.path.join(os.path.dirname(__file__), 'backups')
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # 備份檔名包含時間戳記
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_file = os.path.join(backup_dir, f'備份_{timestamp}.xlsx')
+        
+        import shutil
+        shutil.copy2(EXCEL_FILE, backup_file)
+        logger.info(f"Auto backup created: {backup_file}")
+        
+        # 只保留最近 10 份備份
+        backups = sorted([f for f in os.listdir(backup_dir) if f.endswith('.xlsx')])
+        while len(backups) > 10:
+            oldest = backups.pop(0)
+            os.remove(os.path.join(backup_dir, oldest))
+            logger.info(f"Removed old backup: {oldest}")
+            
+    except Exception as e:
+        logger.error(f"Backup error: {e}")
+
 def save_all_books(books):
     """將所有書籍寫回 Excel (Smart Update)"""
     global CACHED_BOOKS, LAST_MTIME
     try:
+        # 💾 儲存前自動備份
+        backup_excel()
+        
         # 按分類分組 (New State)
         categorized = {cat: [] for cat in CATEGORIES}
         for book in books:

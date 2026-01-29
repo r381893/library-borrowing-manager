@@ -235,6 +235,20 @@ function App() {
     fetchBooks();
   }, [fetchBooks]);
 
+  // 🚨 離開頁面警告：編輯中離開會提醒
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (editingId !== null) {
+        e.preventDefault();
+        e.returnValue = '您有未完成的編輯，確定要離開嗎？';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [editingId]);
+
   // Stats per category
   const categoryStats = useMemo(() => {
     const stats = {};
