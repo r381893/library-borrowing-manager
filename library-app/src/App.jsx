@@ -10,6 +10,7 @@ import './App.css';
 // Firebase Imports
 import { db } from './firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs, writeBatch } from "firebase/firestore";
+import * as XLSX from 'xlsx';
 
 // Category definitions with colors
 const CATEGORIES = [
@@ -717,6 +718,33 @@ function App() {
     }
   };
 
+  const handleExport = () => {
+    try {
+      // 準備資料
+      const data = books.map(book => ({
+        '系統ID': book.id,
+        '分類': book.category,
+        '書名': book.title,
+        '作者': book.author,
+        '借閱人_備註': book.note,
+        '日期': book.date,
+        '建立時間': book.created_at ? new Date(book.created_at.seconds * 1000).toLocaleString() : ''
+      }));
+
+      // 建立工作表
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "圖書館清單");
+
+      // 下載檔案
+      const filename = `圖書館借書清單_雲端匯出_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("匯出失敗: " + err.message);
+    }
+  };
+
   // Filtered and sorted
   const filteredBooks = useMemo(() => {
     let result = books.filter(book => {
@@ -780,7 +808,10 @@ function App() {
           </div>
 
           <div className="header-actions">
-            <button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+            <button className="theme-toggle" onClick={handleExport} title="下載 Excel">
+              <Download size={20} /> <span className="btn-text">下載</span>
+            </button>
+            <button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="切換深色/淺色模式">
               {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
             <div className="search-box">
