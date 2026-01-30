@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download, Clock, FileText } from 'lucide-react';
 import {
@@ -6,8 +7,9 @@ import {
 } from 'recharts';
 import './App.css';
 
-// API Base URL - localhost for development, relative for production
-const API_URL = import.meta.env.DEV ? 'http://localhost:5001/api' : '/api';
+// Firebase Imports
+import { db } from './firebase';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs, writeBatch } from "firebase/firestore";
 
 // Category definitions with colors
 const CATEGORIES = [
@@ -39,7 +41,6 @@ const BorrowerBadge = ({ text, onClick }) => {
 
   const config = BORROWER_CONFIG[text];
 
-  // 如果在設定中有找到，顯示為 Badge
   if (config) {
     return (
       <span
@@ -57,7 +58,6 @@ const BorrowerBadge = ({ text, onClick }) => {
     );
   }
 
-  // 自動判斷：如果包含 "網路"，顯示為橘色系 Badge
   if (text.includes('網路')) {
     return (
       <span
@@ -74,13 +74,11 @@ const BorrowerBadge = ({ text, onClick }) => {
     );
   }
 
-  // 預設純文字顯示 (但如果是 ISBN 格式，則保持原樣)
   const isISBN = /^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/.test(text.replace(/-/g, ''));
   if (isISBN) {
     return <span className="isbn-text">{text}</span>;
   }
 
-  // 其他備註文字
   return (
     <span
       className={onClick ? "clickable-text" : ""}
@@ -99,7 +97,7 @@ const StatsDashboard = ({ books, categories }) => {
     return categories
       .filter(c => c.id !== '全部')
       .map(cat => ({
-        name: cat.label.split(' ')[1] || cat.label, // 移除 emoji
+        name: cat.label.split(' ')[1] || cat.label,
         value: books.filter(b => b.category === cat.id).length,
         color: cat.color
       }))
@@ -125,7 +123,6 @@ const StatsDashboard = ({ books, categories }) => {
     const counts = {};
     books.forEach(b => {
       const note = b.note ? String(b.note).trim() : '';
-      // Exclude empty notes and likely ISBNs (simple check for mostly digits 10-13 chars)
       const isISBN = /^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/.test(note);
 
       if (note && !isISBN) {
@@ -141,7 +138,6 @@ const StatsDashboard = ({ books, categories }) => {
 
   return (
     <div className="stats-dashboard animate-fade-in">
-      {/* 總覽卡片 */}
       <div className="stats-cards">
         <div className="stat-card">
           <h3>📚 總藏書</h3>
@@ -160,7 +156,6 @@ const StatsDashboard = ({ books, categories }) => {
       </div>
 
       <div className="charts-container">
-        {/* 分類分佈 */}
         <div className="chart-wrapper">
           <h3>📖 書籍分類分佈</h3>
           <div style={{ width: '100%', height: 300 }}>
@@ -186,7 +181,6 @@ const StatsDashboard = ({ books, categories }) => {
           </div>
         </div>
 
-        {/* Top 10 作者 */}
         <div className="chart-wrapper">
           <h3>🏆 Top 10 作者</h3>
           <div style={{ width: '100%', height: 300 }}>
@@ -207,7 +201,6 @@ const StatsDashboard = ({ books, categories }) => {
         </div>
       </div>
 
-      {/* Top 10 借閱人 */}
       <div className="chart-wrapper">
         <h3>👥 Top 10 借閱人</h3>
         <div style={{ width: '100%', height: 300 }}>
@@ -230,8 +223,7 @@ const StatsDashboard = ({ books, categories }) => {
   );
 };
 
-// 今日活動記錄組件
-const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
+const ActivityLog = ({ activities, stats, onRefresh, onClear }) => {
   const getActionIcon = (action) => {
     switch (action) {
       case 'add': return '➕';
@@ -275,7 +267,6 @@ const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
 
   return (
     <div className="activity-log animate-fade-in">
-      {/* 統計卡片 */}
       <div className="activity-stats-cards">
         <div className="activity-stat-card">
           <div className="activity-stat-icon" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
@@ -315,38 +306,11 @@ const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
         </div>
       </div>
 
-      {/* 操作按鈕 */}
       <div className="activity-actions">
-        <button className="btn-secondary" onClick={onRefresh} disabled={loading}>
-          <RefreshCw size={18} className={loading ? 'spin' : ''} style={{ marginRight: '6px' }} />
-          刷新記錄
-        </button>
-        {activities.length > 0 && (
-          <button
-            className="btn-secondary"
-            onClick={() => {
-              if (window.confirm('確定要清除所有今日活動記錄嗎？')) {
-                onClear();
-              }
-            }}
-            style={{ color: '#ef4444', borderColor: '#ef4444' }}
-          >
-            <Trash2 size={18} style={{ marginRight: '6px' }} />
-            清除記錄
-          </button>
-        )}
       </div>
 
-      {/* 活動記錄列表 */}
       <div className="activity-list">
-        {loading && (
-          <div className="activity-loading">
-            <RefreshCw size={32} className="spin" style={{ color: 'var(--primary)' }} />
-            <p>載入活動記錄中...</p>
-          </div>
-        )}
-
-        {!loading && activities.length === 0 && (
+        {activities.length === 0 && (
           <div className="activity-empty">
             <Clock size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
             <h3>今日尚無活動記錄</h3>
@@ -354,7 +318,7 @@ const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
           </div>
         )}
 
-        {!loading && activities.map((activity, index) => (
+        {activities.map((activity, index) => (
           <div
             key={activity.id || index}
             className="activity-item"
@@ -384,7 +348,6 @@ const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
                 )}
               </div>
 
-              {/* 變更細節 */}
               {activity.action === 'category_change' && activity.details && (
                 <div className="activity-changes">
                   <span className="change-badge old">{activity.details.old_category}</span>
@@ -432,21 +395,8 @@ function App() {
   const [activeCategory, setActiveCategory] = useState('全部');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [sortBy, setSortBy] = useState('date_desc'); // 預設依日期 (最新在先)面)
+  const [sortBy, setSortBy] = useState('date_desc');
   const [viewMode, setViewMode] = useState('table');
-  // Helper: Sanitize title for search (preserve spaces)
-  const sanitizeForSearch = (title) => {
-    if (!title) return '';
-    // 1. Remove content in parentheses
-    let s = String(title).replace(/[\(（].*?[\)）]/g, '');
-    // 2. Take part before colon
-    s = s.split(/[:：]/)[0];
-    // 3. Replace special chars with space (instead of removing them)
-    s = s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ');
-    // 4. Collapse spaces
-    return s.replace(/\s+/g, ' ').trim();
-  };
-
   const [currentPage, setCurrentPage] = useState(1);
 
   // Add Book Modal State
@@ -465,7 +415,6 @@ function App() {
   // 活動記錄狀態
   const [activities, setActivities] = useState([]);
   const [activityStats, setActivityStats] = useState({});
-  const [activityLoading, setActivityLoading] = useState(false);
 
   // 刪除確認對話框狀態
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, bookId: null, bookTitle: '' });
@@ -475,70 +424,113 @@ function App() {
     return localStorage.getItem('library-theme') || 'light';
   });
 
-  // Apply theme to document
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('library-theme', theme);
   }, [theme]);
 
-  // Fetch books from API
-  const fetchBooks = useCallback(async () => {
+  // Sanitize title for search
+  const sanitizeForSearch = (title) => {
+    if (!title) return '';
+    let s = String(title).replace(/[\(（].*?[\)）]/g, '');
+    s = s.split(/[:：]/)[0];
+    s = s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ');
+    return s.replace(/\s+/g, ' ').trim();
+  };
+
+  // 🔥 Fetch books from Firestore (Real-time)
+  useEffect(() => {
     setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_URL}/books`);
-      if (!res.ok) throw new Error('無法連接到伺服器');
-      const data = await res.json();
-      setBooks(data);
-    } catch (err) {
-      setError(err.message);
-      console.error('Fetch error:', err);
-    } finally {
+    // 訂閱 'books' 集合
+    const q = query(collection(db, 'books')); // 可以加 orderBy
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const booksData = [];
+      snapshot.forEach((doc) => {
+        // 合併 doc.id 和數據 (雖然我們數據裡已經有 id 欄位，但使用 doc.id 更安全)
+        booksData.push({ ...doc.data(), docId: doc.id });
+      });
+      setBooks(booksData);
       setLoading(false);
-    }
+    }, (err) => {
+      console.error(err);
+      setError("無法連接雲端資料庫");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Fetch activities from API
-  const fetchActivities = useCallback(async () => {
-    setActivityLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/activities`);
-      if (!res.ok) throw new Error('無法取得活動記錄');
-      const data = await res.json();
-      setActivities(data.activities || []);
-      setActivityStats(data.stats || {});
-    } catch (err) {
-      console.error('Fetch activities error:', err);
-    } finally {
-      setActivityLoading(false);
-    }
-  }, []);
+  // 🔥 Fetch activities from Firestore (Real-time)
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    // 只獲取今天的活動
+    const q = query(
+      collection(db, 'activities'),
+      where('date', '==', today),
+      orderBy('timestamp', 'desc')
+    );
 
-  // Clear activities
-  const clearActivities = useCallback(async () => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const acts = [];
+      let adds = 0, edits = 0, deletes = 0, category_changes = 0;
+
+      snapshot.forEach(doc => {
+        const act = doc.data();
+        acts.push(act);
+        if (act.action === 'add') adds++;
+        if (act.action === 'edit') edits++;
+        if (act.action === 'delete') deletes++;
+        if (act.action === 'category_change') category_changes++;
+      });
+
+      setActivities(acts);
+      setActivityStats({
+        total: acts.length,
+        adds, edits, deletes, category_changes
+      });
+    });
+
+    return () => unsubscribe();
+  }, [viewMode]); // 當 viewMode 切換或掛載時訂閱 (其實可以一直訂閱)
+
+  // Log Activity Helper
+  const logActivity = async (action, bookData, oldData = null) => {
     try {
-      const res = await fetch(`${API_URL}/activities`, { method: 'DELETE' });
-      if (res.ok) {
-        setActivities([]);
-        setActivityStats({});
+      const now = new Date();
+      const activityData = {
+        timestamp: now.toISOString().replace('T', ' ').split('.')[0],
+        date: now.toISOString().split('T')[0],
+        time: now.toLocaleTimeString('en-US', { hour12: false }),
+        action,
+        book_id: bookData.id || bookData.docId, // Use available ID
+        book_title: bookData.title,
+        book_author: bookData.author,
+        book_category: bookData.category,
+        details: {}
+      };
+
+      if (action === 'edit' && oldData) {
+        const changes = [];
+        ['title', 'author', 'date', 'note', 'category'].forEach(key => {
+          if (bookData[key] !== oldData[key]) {
+            changes.push({ field: key, old: oldData[key], new: bookData[key] });
+          }
+        });
+        activityData.details.changes = changes;
       }
-    } catch (err) {
-      console.error('Clear activities error:', err);
+
+      if (action === 'category_change' && oldData) {
+        activityData.details.old_category = oldData.category;
+        activityData.details.new_category = bookData.category;
+      }
+
+      await addDoc(collection(db, 'activities'), activityData);
+    } catch (e) {
+      console.error("Failed to log activity", e);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    fetchBooks();
-  }, [fetchBooks]);
-
-  // 當切換到活動分頁時自動載入活動記錄
-  useEffect(() => {
-    if (viewMode === 'activity') {
-      fetchActivities();
-    }
-  }, [viewMode, fetchActivities]);
-
-  // 🚨 離開頁面警告：編輯中離開會提醒
+  // 離開頁面警告
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (editingId !== null) {
@@ -547,12 +539,11 @@ function App() {
         return e.returnValue;
       }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [editingId]);
 
-  // Stats per category
+  // Derived Stats
   const categoryStats = useMemo(() => {
     const stats = {};
     CATEGORIES.forEach(cat => {
@@ -563,19 +554,13 @@ function App() {
     return stats;
   }, [books]);
 
-  // Author stats
-  const totalAuthors = useMemo(() => {
-    const authors = new Set(books.map(b => b.author).filter(a => a && a !== '未分類作者'));
-    return authors.size;
-  }, [books]);
-
   // Reset page when filter changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, activeCategory, sortBy]);
 
   const startEdit = (book) => {
-    setEditingId(book.id);
+    setEditingId(book.docId); // Use Firestore Doc ID for tracking editing
     setEditForm({ ...book });
   };
 
@@ -587,14 +572,27 @@ function App() {
   const saveEdit = async (exitEditMode = true) => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/books/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm)
-      });
-      if (!res.ok) throw new Error('儲存失敗');
+      const bookRef = doc(db, 'books', editingId);
+      // Find original book data for activity log
+      const oldBook = books.find(b => b.docId === editingId);
 
-      setBooks(books.map(b => b.id === editingId ? { ...editForm } : b));
+      await updateDoc(bookRef, {
+        title: editForm.title,
+        author: editForm.author,
+        date: editForm.date,
+        note: editForm.note,
+        category: editForm.category
+      });
+
+      // Log Activity
+      if (oldBook) {
+        if (oldBook.category !== editForm.category) {
+          await logActivity('category_change', editForm, oldBook);
+        } else {
+          await logActivity('edit', editForm, oldBook);
+        }
+      }
+
       if (exitEditMode) {
         setEditingId(null);
       }
@@ -606,14 +604,12 @@ function App() {
     }
   };
 
-  // 自動儲存：當離開輸入框時觸發
   const handleFieldBlur = () => {
     if (editingId !== null) {
-      saveEdit(false); // 儲存但不離開編輯模式
+      saveEdit(false);
     }
   };
 
-  // 按 Enter 鍵儲存並離開編輯模式
   const handleFieldKeyDown = (e) => {
     if (e.key === 'Enter') {
       saveEdit(true);
@@ -622,24 +618,22 @@ function App() {
     }
   };
 
-  // 請求刪除（顯示確認對話框）
   const requestDeleteBook = (book) => {
-    setDeleteConfirm({ open: true, bookId: book.id, bookTitle: book.title });
+    setDeleteConfirm({ open: true, bookId: book.docId, bookTitle: book.title });
   };
 
-  // 確認刪除（執行刪除）
   const confirmDeleteBook = async () => {
-    const bookId = deleteConfirm.bookId;
-    setDeleteConfirm({ open: false, bookId: null, bookTitle: '' });
+    const docId = deleteConfirm.bookId;
+    // Find book for log
+    const deletedBook = books.find(b => b.docId === docId);
 
+    setDeleteConfirm({ open: false, bookId: null, bookTitle: '' });
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/books/${bookId}`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('刪除失敗');
-
-      setBooks(books.filter(b => b.id !== bookId));
+      await deleteDoc(doc(db, 'books', docId));
+      if (deletedBook) {
+        await logActivity('delete', deletedBook);
+      }
       setLastSaved(new Date());
     } catch (err) {
       alert('刪除失敗: ' + err.message);
@@ -648,7 +642,6 @@ function App() {
     }
   };
 
-  // 取消刪除
   const cancelDeleteBook = () => {
     setDeleteConfirm({ open: false, bookId: null, bookTitle: '' });
   };
@@ -662,41 +655,21 @@ function App() {
     setSearchTerm(text);
   };
 
-  // 快速切換分類 (不需進入編輯模式，直接儲存)
   const handleQuickCategoryChange = async (book, newCategory) => {
     if (book.category === newCategory) return;
-
     setSaving(true);
     try {
-      const updatedBook = { ...book, category: newCategory };
-      const res = await fetch(`${API_URL}/books/${book.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedBook)
-      });
-      if (!res.ok) throw new Error('儲存失敗');
+      const bookRef = doc(db, 'books', book.docId);
+      const updatedData = { ...book, category: newCategory };
+      await updateDoc(bookRef, { category: newCategory });
 
-      setBooks(books.map(b => b.id === book.id ? updatedBook : b));
+      await logActivity('category_change', updatedData, book);
+
       setLastSaved(new Date());
     } catch (err) {
       alert('切換分類失敗: ' + err.message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleExport = () => {
-    window.open(`${API_URL}/export`, '_blank');
-  };
-
-  const handleForceRefresh = async () => {
-    setLoading(true);
-    try {
-      await fetch(`${API_URL}/debug/reload`, { method: 'POST' });
-      await fetchBooks();
-    } catch (err) {
-      console.error(err);
-      fetchBooks();
     }
   };
 
@@ -716,27 +689,25 @@ function App() {
   const handleAddSubmit = async (e) => {
     e.preventDefault();
     if (!addForm.title) return;
-
     setSaving(true);
     try {
-      // Use custom borrower if "Other" or typed
       const noteToSave = addForm.note === 'Other' ? customBorrower : addForm.note;
+
+      // Generate ID: Use Date.now() as simple numeric ID for compatibility
+      const newId = Date.now();
 
       const newBook = {
         ...addForm,
-        note: noteToSave
+        note: noteToSave,
+        id: newId,
+        created_at: serverTimestamp()
       };
 
-      const res = await fetch(`${API_URL}/books`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newBook)
-      });
+      // Add to Firestore (Letting Firestore generate Document ID, but we store internal numeric ID too)
+      await addDoc(collection(db, 'books'), newBook);
 
-      if (!res.ok) throw new Error('新增失敗');
+      await logActivity('add', newBook);
 
-      const savedBook = await res.json();
-      setBooks([savedBook, ...books]);
       setLastSaved(new Date());
       setAddModalOpen(false);
     } catch (err) {
@@ -760,19 +731,16 @@ function App() {
 
     result.sort((a, b) => {
       if (sortBy === 'added') {
-        // ID 越小代表越前面 (通常是新書-待借)，排前面
-        return (a.id || 0) - (b.id || 0);
+        // Sort by ID (numeric) desc or created_at
+        // Using ID for now as it maps to "Added Order" roughly
+        return (b.id || 0) - (a.id || 0); // Newer (larger ID) first
       }
       if (sortBy === 'date_desc') {
-        // Empty dates go to the bottom
-        if (!a.date) return 1;
-        if (!b.date) return -1;
+        if (!a.date) return 1; if (!b.date) return -1;
         return b.date.localeCompare(a.date);
       }
       if (sortBy === 'date_asc') {
-        // Empty dates go to the bottom
-        if (!a.date) return 1;
-        if (!b.date) return -1;
+        if (!a.date) return 1; if (!b.date) return -1;
         return a.date.localeCompare(b.date);
       }
       if (sortBy === 'author') {
@@ -788,7 +756,6 @@ function App() {
     return result;
   }, [books, searchTerm, activeCategory, sortBy]);
 
-  // Pagination
   const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
   const paginatedBooks = filteredBooks.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -800,130 +767,69 @@ function App() {
     return cat ? cat.color : '#64748b';
   };
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="container" style={{ textAlign: 'center', paddingTop: '4rem' }}>
-        <RefreshCw size={48} className="spin" style={{ color: 'var(--primary)', marginBottom: '1rem' }} />
-        <h2>載入中...</h2>
-        <p style={{ color: 'var(--text-muted)' }}>正在從 Excel 讀取資料</p>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="container" style={{ textAlign: 'center', paddingTop: '4rem' }}>
-        <AlertCircle size={48} style={{ color: '#ef4444', marginBottom: '1rem' }} />
-        <h2>無法連接到伺服器</h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>{error}</p>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          請確認已執行 <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>python server.py</code>
-        </p>
-        <button className="btn-primary" onClick={handleForceRefresh} style={{ marginTop: '1rem' }}>
-          <RefreshCw size={18} style={{ marginRight: '6px' }} />
-          重試
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="container">
-      {/* Theme Switcher */}
-      <div className="theme-switcher">
-        <button
-          className={`theme-btn ${theme === 'light' ? 'active' : ''}`}
-          data-theme="light"
-          onClick={() => setTheme('light')}
-          title="淺色主題"
-        >
-          ☀️
-        </button>
-        <button
-          className={`theme-btn ${theme === 'dark' ? 'active' : ''}`}
-          data-theme="dark"
-          onClick={() => setTheme('dark')}
-          title="深色主題"
-        >
-          🌙
-        </button>
-        <button
-          className={`theme-btn ${theme === 'black' ? 'active' : ''}`}
-          data-theme="black"
-          onClick={() => setTheme('black')}
-          title="純黑主題"
-        >
-          ⚫
-        </button>
-      </div>
+    <div className="app-container">
+      {/* 標題與搜尋欄 */}
+      <header className="app-header">
+        <div className="header-content">
+          <div className="logo-section">
+            <div className="logo-icon">
+              <Library size={32} color="white" />
+            </div>
+            <h1>圖書館借書管理 <span className="cloud-badge">雲端版</span></h1>
+          </div>
 
-      <header style={{ marginBottom: '2rem', textAlign: 'center' }}>
-        <h1 className="animate-fade-in">
-          <Library style={{ marginBottom: '-6px', marginRight: '10px' }} size={40} />
-          圖書館借書管理系統
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }} className="animate-fade-in">
-          Library Borrowing Management • 共 {books.length.toLocaleString()} 本書 • {totalAuthors.toLocaleString()} 位作者
-        </p>
-        {lastSaved && (
-          <p style={{ color: '#4ade80', fontSize: '0.9rem', marginTop: '0.5rem' }} className="animate-fade-in">
-            <Check size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-            已同步至 Excel • {lastSaved.toLocaleTimeString()}
-          </p>
-        )}
-        {saving && (
-          <p style={{ color: '#f59e0b', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-            <RefreshCw size={14} className="spin" style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-            正在儲存...
-          </p>
-        )}
+          <div className="header-actions">
+            <button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            <div className="search-box">
+              <Search size={20} className="search-icon" />
+              <input
+                type="text"
+                placeholder="搜尋書名、作者或備註..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button className="clear-search" onClick={() => setSearchTerm('')}>
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </header>
 
-      {/* Category Tabs */}
-      <div className="category-tabs animate-fade-in" style={{ animationDelay: '0.1s' }}>
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat.id}
-            className={`category-tab ${activeCategory === cat.id ? 'active' : ''}`}
-            style={{ '--cat-color': cat.color, borderColor: activeCategory === cat.id ? cat.color : 'transparent' }}
-            onClick={() => setActiveCategory(cat.id)}
-          >
-            <span>{cat.label}</span>
-            <span className="tab-count">{categoryStats[cat.id]?.toLocaleString()}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Controls */}
-      <div className="filters-bar glass-panel animate-fade-in" style={{ padding: '1rem', animationDelay: '0.2s' }}>
-        <div className="search-input-wrapper">
-          <Search className="search-icon" />
-          <input
-            type="text"
-            placeholder="搜尋書名、作者或備註..."
-            className="search-input"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
-            <button className="clear-search" onClick={() => setSearchTerm('')} title="清除搜尋">
-              <X size={18} />
+      {/* 統計面板 / 工具列 */}
+      <div className="toolbar">
+        <div className="categories">
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat.id}
+              className={`category-btn ${activeCategory === cat.id ? 'active' : ''}`}
+              style={{ '--cat-color': cat.color }}
+              onClick={() => setActiveCategory(cat.id)}
+            >
+              {cat.label}
+              <span className="count-badge">{categoryStats[cat.id]}</span>
             </button>
-          )}
+          ))}
         </div>
 
-        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="sort-select">
-          <option value="added">依加入時間 (Excel順序)</option>
-          <option value="date_desc">依日期 (最新在先)</option>
-          <option value="date_asc">依日期 (最舊在先)</option>
-          <option value="author">依作者筆畫排序</option>
-          <option value="title">依書名筆畫排序</option>
-        </select>
-
-        {/* View Toggle */}
-        <div className="view-toggle">
+        <div className="view-toggles">
+          <button
+            className={`view-btn ${viewMode === 'table' ? 'active' : ''}`}
+            onClick={() => setViewMode('table')}
+          >
+            <List size={18} /> 列表
+          </button>
+          <button
+            className={`view-btn ${viewMode === 'card' ? 'active' : ''}`}
+            onClick={() => setViewMode('card')}
+          >
+            <LayoutGrid size={18} /> 卡片
+          </button>
           <button
             className={`view-btn ${viewMode === 'activity' ? 'active' : ''}`}
             onClick={() => setViewMode('activity')}
@@ -936,524 +842,340 @@ function App() {
           >
             <BarChart2 size={18} /> 統計
           </button>
-          <button
-            className={`view-btn ${viewMode === 'card' ? 'active' : ''}`}
-            onClick={() => setViewMode('card')}
-          >
-            <LayoutGrid size={18} /> 卡片
-          </button>
-          <button
-            className={`view-btn ${viewMode === 'table' ? 'active' : ''}`}
-            onClick={() => setViewMode('table')}
-          >
-            <List size={18} /> 表格
-          </button>
-        </div>
-
-        <div className="action-buttons">
-          <button className="btn-primary" onClick={addNewBook} disabled={saving}>
-            <Plus size={18} style={{ marginRight: '6px' }} />
-            新增書籍
-          </button>
-          <button className="btn-secondary" onClick={handleExport} disabled={saving} title="匯出 Excel">
-            <Download size={18} style={{ marginRight: '6px' }} />
-            匯出
-          </button>
-          <button className="btn-secondary" onClick={handleForceRefresh} disabled={saving} title="強制重新載入">
-            <RefreshCw size={18} style={{ marginRight: '6px' }} />
-            重新載入
-          </button>
-
-          {activeCategory === '新書-待借' && filteredBooks.length > 0 && (
-            <button
-              className="btn-secondary"
-              style={{ color: '#3b82f6', borderColor: '#3b82f6' }}
-              onClick={() => {
-                const batchSize = 5;
-                const booksToSearch = filteredBooks.slice(0, batchSize);
-                if (window.confirm(`為避免卡頓，將優先開啟前 ${booksToSearch.length} 本書的查詢分頁。\n\n搜尋關鍵字將自動優化（去除備註、保留空格）。`)) {
-                  booksToSearch.forEach((book, i) => {
-                    let term = book.note && (book.note.match(/^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/))
-                      ? (book.note.match(/^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/)[0])
-                      : sanitizeForSearch(book.title);
-
-                    setTimeout(() => {
-                      window.open(`https://webpacx.ksml.edu.tw/search?q=${encodeURIComponent(term)}`, '_blank');
-                    }, i * 500);
-                  });
-                }
-              }}
-            >
-              <Search size={18} style={{ marginRight: '6px' }} />
-              查詢前 5 本
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Results count */}
-      {viewMode !== 'stats' && (
-        <div className="results-info animate-fade-in" style={{ animationDelay: '0.25s' }}>
-          顯示 <strong>{filteredBooks.length.toLocaleString()}</strong> 本書籍
-          {searchTerm && <span> (搜尋: "{searchTerm}")</span>}
-          {totalPages > 1 && <span> • 第 {currentPage} / {totalPages} 頁</span>}
-        </div>
-      )}
+      {/* Main Content */}
+      <main className="main-content">
+        <div className="content-controls">
+          <div className="control-left">
+            <span className="book-count">顯示 {filteredBooks.length} 本書籍</span>
+            {lastSaved && (
+              <span className="save-status">
+                <Check size={14} /> 雲端已同步 ({lastSaved.toLocaleTimeString()})
+              </span>
+            )}
+            {saving && <span className="saving-indicator">儲存中...</span>}
+          </div>
 
-      {/* ACTIVITY VIEW */}
-      {viewMode === 'activity' && (
-        <ActivityLog
-          activities={activities}
-          stats={activityStats}
-          onRefresh={fetchActivities}
-          onClear={clearActivities}
-          loading={activityLoading}
-        />
-      )}
+          <div className="control-right">
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="sort-select">
+              <option value="added">依加入時間 (最新在先)</option>
+              <option value="date_desc">依日期 (最新在先)</option>
+              <option value="date_asc">依日期 (最舊在先)</option>
+              <option value="author">依作者筆畫排序</option>
+              <option value="title">依書名筆畫排序</option>
+            </select>
 
-      {/* STATS VIEW */}
-      {viewMode === 'stats' && <StatsDashboard books={books} categories={CATEGORIES} />}
-
-      {/* TABLE VIEW */}
-      {viewMode === 'table' && (
-        <div className="books-table-wrapper animate-fade-in" style={{ animationDelay: '0.3s' }}>
-          <table className="books-table">
-            <thead>
-              <tr>
-                <th className="col-index">#</th>
-                <th className="col-category">分類</th>
-                <th className="col-title">書名</th>
-                <th className="col-author">作者</th>
-                <th className="col-date" style={{ width: '120px' }}>日期</th>
-                <th className="col-note" style={{ width: '120px' }}>備註/借閱人</th>
-                <th className="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedBooks.map((book, i) => {
-                const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + i;
-                const catColor = getCategoryColor(book.category);
-                const isEditing = editingId === book.id;
-
-
-
-                return (
-                  <tr key={book.id}>
-                    <td className="col-index">{globalIndex + 1}</td>
-                    <td className="col-category">
-                      {isEditing ? (
-                        <select
-                          value={editForm.category || ''}
-                          onChange={(e) => handleChange(e, 'category')}
-                          style={{ padding: '4px', fontSize: '0.85rem' }}
-                        >
-                          {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.id}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={book.category}
-                          onChange={(e) => handleQuickCategoryChange(book, e.target.value)}
-                          disabled={saving}
-                          className="quick-category-select"
-                          style={{
-                            background: catColor,
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '4px 8px',
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                            fontWeight: '500'
-                          }}
-                          title="點擊直接切換分類 (自動儲存)"
-                        >
-                          {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
-                            <option key={cat.id} value={cat.id} style={{ background: '#fff', color: '#333' }}>{cat.id}</option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-                    <td className="col-title">
-                      {isEditing ? (
-                        <input
-                          value={editForm.title || ''}
-                          onChange={(e) => handleChange(e, 'title')}
-                          onBlur={handleFieldBlur}
-                          onKeyDown={handleFieldKeyDown}
-                          style={{ width: '100%' }}
-                          autoFocus
-                        />
-                      ) : (
-                        <span
-                          className="clickable-text"
-                          onClick={() => handleQuickFilter(book.title)}
-                          title="點擊依書名篩選"
-                        >
-                          {book.title}
-                        </span>
-                      )}
-                    </td>
-                    <td className="col-author">
-                      {isEditing ? (
-                        <input
-                          value={editForm.author || ''}
-                          onChange={(e) => handleChange(e, 'author')}
-                          onBlur={handleFieldBlur}
-                          onKeyDown={handleFieldKeyDown}
-                          style={{ width: '100%' }}
-                        />
-                      ) : (
-                        <span
-                          className="clickable-text"
-                          onClick={() => handleQuickFilter(book.author)}
-                          title="點擊依作者篩選"
-                        >
-                          {book.author || '未分類作者'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="col-date">
-                      {isEditing ? (
-                        <input
-                          value={editForm.date || ''}
-                          onChange={(e) => handleChange(e, 'date')}
-                          onBlur={handleFieldBlur}
-                          onKeyDown={handleFieldKeyDown}
-                          style={{ width: '100%' }}
-                          placeholder="YYYY-MM-DD"
-                        />
-                      ) : (
-                        <span style={{ fontSize: '0.9rem', color: book.date ? 'inherit' : '#9ca3af' }}>
-                          {book.date || '-'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="col-note">
-                      {isEditing ? (
-                        <input
-                          value={editForm.note || ''}
-                          onChange={(e) => handleChange(e, 'note')}
-                          onBlur={handleFieldBlur}
-                          onKeyDown={handleFieldKeyDown}
-                          style={{ width: '100%' }}
-                        />
-                      ) : (
-                        <BorrowerBadge
-                          text={book.note}
-                          onClick={() => handleQuickFilter(book.note)}
-                        />
-                      )}
-                    </td>
-                    <td className="col-actions">
-                      {isEditing ? (
-                        <div className="table-actions">
-                          <button className="btn-icon" onClick={saveEdit} title="儲存" style={{ color: '#4ade80' }} disabled={saving}>✓</button>
-                          <button className="btn-icon" onClick={cancelEdit} title="取消" style={{ color: '#f87171' }}>✕</button>
-                        </div>
-                      ) : (
-                        <div className="table-actions">
-
-                          <button
-                            className="btn-icon"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(book.title);
-                              alert(`已複製書名: ${book.title}`);
-                            }}
-                            title="複製完整書名"
-                            style={{ color: '#8b5cf6' }}
-                          >
-                            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>C</span>
-                          </button>
-                          <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}>
-                            <Edit2 size={16} />
-                          </button>
-                          <button className="btn-icon" onClick={() => requestDeleteBook(book)} title="刪除" style={{ color: '#f87171' }} disabled={saving}>
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* CARD VIEW */}
-      {viewMode === 'card' && (
-        <div className="books-grid animate-fade-in" style={{ animationDelay: '0.3s' }}>
-          {paginatedBooks.map((book) => {
-            const isEditing = editingId === book.id;
-            const catColor = getCategoryColor(book.category);
-
-            return (
-              <div key={book.id} className="glass-card book-card" style={{ '--card-accent': catColor }}>
-                {isEditing ? (
-                  <>
-                    <input value={editForm.title || ''} onChange={(e) => handleChange(e, 'title')} placeholder="書名" style={{ marginBottom: '0.5rem' }} />
-                    <input value={editForm.author || ''} onChange={(e) => handleChange(e, 'author')} placeholder="作者" className="author-input" />
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                      <input value={editForm.date || ''} onChange={(e) => handleChange(e, 'date')} placeholder="日期" style={{ flex: 1, fontSize: '0.85rem' }} />
-                      <input value={editForm.note || ''} onChange={(e) => handleChange(e, 'note')} placeholder="備註" style={{ flex: 1, fontSize: '0.85rem' }} />
-                    </div>
-                    <select value={editForm.category || ''} onChange={(e) => handleChange(e, 'category')} style={{ marginTop: '0.5rem' }}>
-                      {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
-                        <option key={cat.id} value={cat.id}>{cat.label}</option>
-                      ))}
-                    </select>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                      <button className="btn-primary" style={{ flex: 1, background: '#10b981' }} onClick={saveEdit} disabled={saving}>儲存</button>
-                      <button className="btn-primary" style={{ flex: 1, background: '#64748b' }} onClick={cancelEdit}>取消</button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="book-category-badge" style={{ background: catColor }}>{book.category}</div>
-                    <div className="book-title">{book.title}</div>
-
-                    {(book.date || book.note) && (
-                      <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.5rem', display: 'flex', gap: '8px' }}>
-                        {book.date && <span>📅 {book.date}</span>}
-                        {book.note && <span>📝 {book.note}</span>}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Users size={16} />
-                        {book.author || '未分類作者'}
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-
-                        <button
-                          className="btn-icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigator.clipboard.writeText(book.title);
-                            alert(`已複製書名: ${book.title}`);
-                          }}
-                          title="複製完整書名"
-                          style={{ color: '#8b5cf6' }}
-                        >
-                          <span style={{ fontSize: '14px', fontWeight: 'bold' }}>C</span>
-                        </button>
-                        <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}><Edit2 size={18} /></button>
-                        <button className="btn-icon" onClick={() => requestDeleteBook(book)} title="刪除" style={{ color: '#f87171' }} disabled={saving}><Trash2 size={18} /></button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="pagination">
-          <button
-            className="pagination-btn"
-            onClick={() => setCurrentPage(1)}
-            disabled={currentPage === 1}
-          >
-            首頁
-          </button>
-          <button
-            className="pagination-btn"
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-          >
-            <ChevronLeft size={18} /> 上一頁
-          </button>
-          <span className="pagination-info">
-            第 {currentPage} / {totalPages} 頁
-          </span>
-          <button
-            className="pagination-btn"
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-          >
-            下一頁 <ChevronRight size={18} />
-          </button>
-          <button
-            className="pagination-btn"
-            onClick={() => setCurrentPage(totalPages)}
-            disabled={currentPage === totalPages}
-          >
-            末頁
-          </button>
-        </div>
-      )}
-
-      {filteredBooks.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', fontSize: '1.1rem' }}>
-          沒有找到相關書籍
-        </div>
-      )}
-
-
-      {/* DELETE CONFIRM MODAL */}
-      {deleteConfirm.open && (
-        <div className="modal-overlay" onClick={cancelDeleteBook}>
-          <div className="modal-content delete-confirm-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
-              <h3 className="modal-title" style={{ color: '#ef4444' }}>
-                <Trash2 size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-                確認刪除
-              </h3>
-            </div>
-            <div style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
-              <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>確定要刪除這本書嗎？</p>
-              <p style={{
-                fontWeight: 'bold',
-                color: 'var(--text)',
-                background: 'var(--bg-tertiary)',
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                margin: '1rem 0'
-              }}>
-                「{deleteConfirm.bookTitle}」
-              </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>此操作無法復原</p>
-            </div>
-            <div style={{
-              display: 'flex',
-              gap: '1rem',
-              justifyContent: 'center',
-              padding: '1rem 1.5rem',
-              borderTop: '1px solid var(--border-color)'
-            }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={cancelDeleteBook}
-                style={{ minWidth: '100px' }}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={confirmDeleteBook}
-                style={{
-                  minWidth: '100px',
-                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                  border: 'none'
-                }}
-              >
-                確認刪除
-              </button>
-            </div>
+            <button className="btn-primary add-btn" onClick={addNewBook}>
+              <Plus size={20} /> 新增書籍
+            </button>
           </div>
         </div>
-      )}
 
-      {/* ADD BOOK MODAL */}
+        {error && (
+          <div className="error-banner">
+            <AlertCircle size={20} />
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="loading-state">
+            <RefreshCw size={40} className="spin" />
+            <p>正在載入雲端書庫...</p>
+          </div>
+        ) : viewMode === 'stats' ? (
+          <StatsDashboard books={books} categories={CATEGORIES} />
+        ) : viewMode === 'activity' ? (
+          <ActivityLog
+            activities={activities}
+            stats={activityStats}
+            onRefresh={() => { }} // Snapshot updates auto
+            onClear={() => { }} // Not implemented for firestore yet to avoid accidental wipes
+          />
+        ) : (
+          /* Table/Card View */
+          <>
+            {viewMode === 'table' ? (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th width="60">ID</th>
+                      <th width="120">分類</th>
+                      <th width="250">書名</th>
+                      <th width="150">作者</th>
+                      <th width="150">借閱人/備註</th>
+                      <th width="120">日期</th>
+                      <th width="120">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedBooks.map(book => (
+                      <tr key={book.docId} className={editingId === book.docId ? 'editing-row' : ''} onDoubleClick={() => startEdit(book)}>
+                        <td>{book.id}</td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <select
+                              value={editForm.category}
+                              onChange={(e) => handleChange(e, 'category')}
+                              onBlur={handleFieldBlur}
+                              onKeyDown={handleFieldKeyDown}
+                              autoFocus
+                            >
+                              {CATEGORIES.filter(c => c.id !== '全部').map(c => (
+                                <option key={c.id} value={c.id}>{c.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              className="category-select"
+                              style={{ backgroundColor: getCategoryColor(book.category), color: 'white' }}
+                              value={book.category}
+                              onChange={(e) => handleQuickCategoryChange(book, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {CATEGORIES.filter(c => c.id !== '全部').map(c => (
+                                <option key={c.id} value={c.id}>{c.label}</option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <input
+                              type="text"
+                              value={editForm.title}
+                              onChange={(e) => handleChange(e, 'title')}
+                              onBlur={handleFieldBlur}
+                              onKeyDown={handleFieldKeyDown}
+                            />
+                          ) : (
+                            <span className="book-title">{book.title}</span>
+                          )}
+                        </td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <input
+                              type="text"
+                              value={editForm.author}
+                              onChange={(e) => handleChange(e, 'author')}
+                              onBlur={handleFieldBlur}
+                              onKeyDown={handleFieldKeyDown}
+                            />
+                          ) : (
+                            <span
+                              className="clickable-text"
+                              onClick={() => handleQuickFilter(book.author)}
+                              title="篩選此作者"
+                            >
+                              {book.author}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <input
+                              type="text"
+                              value={editForm.note}
+                              onChange={(e) => handleChange(e, 'note')}
+                              onBlur={handleFieldBlur}
+                              onKeyDown={handleFieldKeyDown}
+                            />
+                          ) : (
+                            <BorrowerBadge text={book.note} onClick={() => handleQuickFilter(book.note)} />
+                          )}
+                        </td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <input
+                              type="text"
+                              value={editForm.date}
+                              onChange={(e) => handleChange(e, 'date')}
+                              onBlur={handleFieldBlur}
+                              onKeyDown={handleFieldKeyDown}
+                              placeholder="YYYY-MM-DD"
+                            />
+                          ) : (
+                            book.date
+                          )}
+                        </td>
+                        <td>
+                          {editingId === book.docId ? (
+                            <div className="action-buttons">
+                              <button className="icon-btn save" onClick={() => saveEdit(true)}><Check size={18} /></button>
+                              <button className="icon-btn cancel" onClick={cancelEdit}><X size={18} /></button>
+                            </div>
+                          ) : (
+                            <div className="action-buttons">
+                              <button className="icon-btn edit" onClick={() => startEdit(book)}><Edit2 size={18} /></button>
+                              <button className="icon-btn delete" onClick={() => requestDeleteBook(book)}><Trash2 size={18} /></button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="cards-grid">
+                {paginatedBooks.map(book => (
+                  <div key={book.docId} className="book-card" style={{ borderTop: `4px solid ${getCategoryColor(book.category)}` }}>
+                    <div className="card-header">
+                      <span className="card-id">#{book.id}</span>
+                      <span className="card-category" style={{ color: getCategoryColor(book.category) }}>{book.category}</span>
+                    </div>
+                    <h3 className="card-title">{book.title}</h3>
+                    <div className="card-info">
+                      <div className="info-row"><Users size={14} /> {book.author}</div>
+                      <div className="info-row"><Clock size={14} /> {book.date || '-'}</div>
+                      {book.note && <div className="info-row note"><FileText size={14} /> <BorrowerBadge text={book.note} /></div>}
+                    </div>
+                    <div className="card-actions">
+                      <button className="icon-btn edit" onClick={() => startEdit(book)}><Edit2 size={16} /></button>
+                      <button className="icon-btn delete" onClick={() => requestDeleteBook(book)}><Trash2 size={16} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="pagination">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft size={20} /> 首頁
+                </button>
+                <span className="page-info">第 {currentPage} / {totalPages} 頁</span>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                >
+                  下一頁 <ChevronRight size={20} />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                >
+                  末頁
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Add Book Modal */}
       {isAddModalOpen && (
-        <div className="modal-overlay" onClick={() => setAddModalOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <div className="modal-header">
-              <h3 className="modal-title">新增書籍</h3>
-              <button className="modal-close" onClick={() => setAddModalOpen(false)}>
-                <X size={24} />
-              </button>
+              <h2>新增書籍</h2>
+              <button className="close-btn" onClick={() => setAddModalOpen(false)}><X size={24} /></button>
             </div>
-
             <form onSubmit={handleAddSubmit}>
               <div className="form-group">
-                <label className="form-label">書名 *</label>
+                <label>書名</label>
                 <input
-                  autoFocus
-                  className="form-input"
+                  type="text"
                   value={addForm.title}
                   onChange={e => setAddForm({ ...addForm, title: e.target.value })}
-                  placeholder="請輸入書名"
                   required
+                  autoFocus
                 />
               </div>
 
               <div className="form-group">
-                <label className="form-label">作者</label>
-                <input
-                  className="form-input"
-                  value={addForm.author}
-                  onChange={e => setAddForm({ ...addForm, author: e.target.value })}
-                  placeholder="作者 (預設: 未分類作者)"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">日期</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={addForm.date}
-                  onChange={e => setAddForm({ ...addForm, date: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">借閱人 / 備註</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select
-                    className="form-input"
-                    value={BORROWERS.includes(addForm.note) ? addForm.note : (addForm.note ? 'Other' : '')}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === 'Other') {
-                        setAddForm({ ...addForm, note: 'Other' });
-                        setCustomBorrower('');
-                      } else {
-                        setAddForm({ ...addForm, note: val });
-                      }
-                    }}
-                  >
-                    <option value="">(無)</option>
-                    {BORROWERS.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                    <option value="Other">自行輸入...</option>
-                  </select>
-                </div>
-                {addForm.note === 'Other' && (
-                  <input
-                    style={{ marginTop: '0.5rem' }}
-                    className="form-input"
-                    value={customBorrower}
-                    onChange={e => setCustomBorrower(e.target.value)}
-                    placeholder="請輸入借閱人或備註"
-                  />
-                )}
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">分類</label>
+                <label>分類</label>
                 <select
-                  className="form-input"
                   value={addForm.category}
                   onChange={e => setAddForm({ ...addForm, category: e.target.value })}
                 >
-                  {CATEGORIES.filter(c => c.id !== '全部').map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  {CATEGORIES.filter(c => c.id !== '全部').map(c => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="modal-footer">
-                <button type="button" className="btn-secondary" onClick={() => setAddModalOpen(false)}>
-                  取消
-                </button>
+              <div className="form-group two-col">
+                <div>
+                  <label>作者</label>
+                  <input
+                    type="text"
+                    value={addForm.author}
+                    onChange={e => setAddForm({ ...addForm, author: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label>日期</label>
+                  <input
+                    type="text"
+                    value={addForm.date}
+                    onChange={e => setAddForm({ ...addForm, date: e.target.value })}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>借閱人 / 備註</label>
+                <select
+                  value={BORROWERS.includes(addForm.note) ? addForm.note : (addForm.note ? 'Other' : '')}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setAddForm({ ...addForm, note: val });
+                    if (val === 'Other') setCustomBorrower('');
+                  }}
+                  style={{ marginBottom: '8px' }}
+                >
+                  <option value="">(無)</option>
+                  {BORROWERS.map(b => <option key={b} value={b}>{b}</option>)}
+                  <option value="Other">自行輸入 / ISBN</option>
+                </select>
+
+                {(addForm.note === 'Other' || (!BORROWERS.includes(addForm.note) && addForm.note)) && (
+                  <input
+                    type="text"
+                    placeholder="輸入借閱人名稱或 ISBN"
+                    value={addForm.note === 'Other' ? customBorrower : addForm.note}
+                    onChange={e => {
+                      setCustomBorrower(e.target.value);
+                      setAddForm({ ...addForm, note: 'Other' });
+                    }}
+                  />
+                )}
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setAddModalOpen(false)}>取消</button>
                 <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? '儲存中...' : '確認新增'}
+                  {saving ? '新增中...' : '確認新增'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteConfirm.open && (
+        <div className="modal-overlay">
+          <div className="modal-content confirm-modal">
+            <div className="modal-header">
+              <h2>確認刪除</h2>
+            </div>
+            <p>您確定要刪除書籍 <strong>{deleteConfirm.bookTitle}</strong> 嗎？</p>
+            <p className="sub-text">此動作無法復原。</p>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={cancelDeleteBook}>取消</button>
+              <button className="btn-danger" onClick={confirmDeleteBook} disabled={saving}>
+                {saving ? '刪除中...' : '確認刪除'}
+              </button>
+            </div>
           </div>
         </div>
       )}
