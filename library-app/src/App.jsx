@@ -488,6 +488,8 @@ function App() {
   // 🔥 Fetch activities from Firestore (Real-time)
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
+    console.log('Fetching activities for date:', today);
+
     // 只獲取今天的活動
     const q = query(
       collection(db, 'activities'),
@@ -508,15 +510,42 @@ function App() {
         if (act.action === 'category_change') category_changes++;
       });
 
+      console.log('Activities loaded:', acts.length);
       setActivities(acts);
       setActivityStats({
         total: acts.length,
         adds, edits, deletes, category_changes
       });
+    }, (err) => {
+      console.error('Activity query error:', err);
+      // If index error, try simpler query without orderBy
+      if (err.code === 'failed-precondition') {
+        console.log('Index not ready, trying simpler query...');
+        const simpleQ = query(
+          collection(db, 'activities'),
+          where('date', '==', today)
+        );
+        onSnapshot(simpleQ, (snapshot) => {
+          const acts = [];
+          let adds = 0, edits = 0, deletes = 0, category_changes = 0;
+          snapshot.forEach(doc => {
+            const act = doc.data();
+            acts.push(act);
+            if (act.action === 'add') adds++;
+            if (act.action === 'edit') edits++;
+            if (act.action === 'delete') deletes++;
+            if (act.action === 'category_change') category_changes++;
+          });
+          // Sort client-side
+          acts.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+          setActivities(acts);
+          setActivityStats({ total: acts.length, adds, edits, deletes, category_changes });
+        });
+      }
     });
 
     return () => unsubscribe();
-  }, [viewMode]); // 當 viewMode 切換或掛載時訂閱 (其實可以一直訂閱)
+  }, []); // 移除 viewMode 依賴，讓訂閱一直保持
 
   // Log Activity Helper
   const logActivity = async (action, bookData, oldData = null) => {
