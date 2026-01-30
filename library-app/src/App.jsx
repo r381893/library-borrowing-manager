@@ -1011,7 +1011,10 @@ function App() {
               key={cat.id}
               className={`category-btn ${activeCategory === cat.id ? 'active' : ''}`}
               style={{ '--cat-color': cat.color }}
-              onClick={() => setActiveCategory(cat.id)}
+              onClick={() => {
+                setActiveCategory(cat.id);
+                if (cat.id === '全部') setSearchTerm(''); // 點擊「全部」時清除搜尋
+              }}
             >
               {cat.label}
               <span className="count-badge">{categoryStats[cat.id]}</span>
@@ -1052,6 +1055,16 @@ function App() {
         <div className="content-controls">
           <div className="control-left">
             <span className="book-count">顯示 {filteredBooks.length} 本書籍</span>
+            {searchTerm && (
+              <button
+                className="filter-chip"
+                onClick={() => setSearchTerm('')}
+                title="清除篩選"
+              >
+                <span>篩選: {searchTerm}</span>
+                <X size={14} />
+              </button>
+            )}
             {lastSaved && (
               <span className="save-status">
                 <Check size={14} /> 雲端已同步 ({lastSaved.toLocaleTimeString()})
