@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download } from 'lucide-react';
+import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download, Clock, FileText } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -7,7 +7,7 @@ import {
 import './App.css';
 
 // API Base URL - localhost for development, relative for production
-const API_URL = import.meta.env.DEV ? 'http://localhost:5000/api' : '/api';
+const API_URL = import.meta.env.DEV ? 'http://localhost:5001/api' : '/api';
 
 // Category definitions with colors
 const CATEGORIES = [
@@ -21,6 +21,76 @@ const CATEGORIES = [
   { id: '已看-3447本', label: '✅ 已看(主)', color: '#22c55e' },
   { id: '已看-1', label: '✅ 已看(1)', color: '#84cc16' },
 ];
+
+// 借閱人顏色設定
+const BORROWER_CONFIG = {
+  'ELMO': { color: '#8b5cf6', bg: '#f3e8ff', label: '🟣 ELMO' },
+  '妹': { color: '#ec4899', bg: '#fce7f3', label: '🩷 妹' },
+  '妹(網路)': { color: '#be185d', bg: '#fce7f3', label: '🩷 妹(網路)' },
+  '州家庭': { color: '#3b82f6', bg: '#dbeafe', label: '🔵 州家庭' },
+  '州家庭(網路)': { color: '#1d4ed8', bg: '#dbeafe', label: '🔵 州家庭(網路)' },
+  '州個人': { color: '#10b981', bg: '#d1fae5', label: '🟢 州個人' },
+  '州個人(網路)': { color: '#047857', bg: '#d1fae5', label: '🟢 州個人(網路)' },
+};
+
+// 借閱人標籤組件
+const BorrowerBadge = ({ text, onClick }) => {
+  if (!text || text === '-' || text === '0') return <span style={{ color: '#ccc' }}>-</span>;
+
+  const config = BORROWER_CONFIG[text];
+
+  // 如果在設定中有找到，顯示為 Badge
+  if (config) {
+    return (
+      <span
+        className={`borrower-badge ${onClick ? 'clickable' : ''}`}
+        style={{
+          backgroundColor: config.bg,
+          color: config.color,
+          border: `1px solid ${config.color}30`
+        }}
+        onClick={onClick}
+        title={onClick ? "點擊依此借閱人篩選" : ""}
+      >
+        {config.label.split(' ')[0]} {text}
+      </span>
+    );
+  }
+
+  // 自動判斷：如果包含 "網路"，顯示為橘色系 Badge
+  if (text.includes('網路')) {
+    return (
+      <span
+        className={`borrower-badge ${onClick ? 'clickable' : ''}`}
+        style={{
+          backgroundColor: '#ffedd5',
+          color: '#c2410c',
+          border: '1px solid #fdba74'
+        }}
+        onClick={onClick}
+      >
+        🌐 {text}
+      </span>
+    );
+  }
+
+  // 預設純文字顯示 (但如果是 ISBN 格式，則保持原樣)
+  const isISBN = /^(978|979)?\d{9}[\dxX]$|^\d{9}[\dxX]$/.test(text.replace(/-/g, ''));
+  if (isISBN) {
+    return <span className="isbn-text">{text}</span>;
+  }
+
+  // 其他備註文字
+  return (
+    <span
+      className={onClick ? "clickable-text" : ""}
+      onClick={onClick}
+      title={onClick ? "點擊依此備註篩選" : ""}
+    >
+      {text}
+    </span>
+  );
+};
 
 const StatsDashboard = ({ books, categories }) => {
   const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#a4de6c', '#d0ed57', '#ffc0cb', '#4ade80'];
@@ -160,6 +230,195 @@ const StatsDashboard = ({ books, categories }) => {
   );
 };
 
+// 今日活動記錄組件
+const ActivityLog = ({ activities, stats, onRefresh, onClear, loading }) => {
+  const getActionIcon = (action) => {
+    switch (action) {
+      case 'add': return '➕';
+      case 'edit': return '✏️';
+      case 'delete': return '🗑️';
+      case 'category_change': return '📁';
+      default: return '📝';
+    }
+  };
+
+  const getActionLabel = (action) => {
+    switch (action) {
+      case 'add': return '新增書籍';
+      case 'edit': return '編輯書籍';
+      case 'delete': return '刪除書籍';
+      case 'category_change': return '變更分類';
+      default: return '操作';
+    }
+  };
+
+  const getActionColor = (action) => {
+    switch (action) {
+      case 'add': return '#10b981';
+      case 'edit': return '#3b82f6';
+      case 'delete': return '#ef4444';
+      case 'category_change': return '#f59e0b';
+      default: return '#8b5cf6';
+    }
+  };
+
+  const formatFieldName = (field) => {
+    const fieldMap = {
+      'title': '書名',
+      'author': '作者',
+      'date': '日期',
+      'note': '備註',
+      'category': '分類'
+    };
+    return fieldMap[field] || field;
+  };
+
+  return (
+    <div className="activity-log animate-fade-in">
+      {/* 統計卡片 */}
+      <div className="activity-stats-cards">
+        <div className="activity-stat-card">
+          <div className="activity-stat-icon" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
+            <FileText size={24} />
+          </div>
+          <div className="activity-stat-info">
+            <span className="activity-stat-value">{stats?.total || 0}</span>
+            <span className="activity-stat-label">今日總操作</span>
+          </div>
+        </div>
+        <div className="activity-stat-card">
+          <div className="activity-stat-icon" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+            <Plus size={24} />
+          </div>
+          <div className="activity-stat-info">
+            <span className="activity-stat-value">{stats?.adds || 0}</span>
+            <span className="activity-stat-label">新增</span>
+          </div>
+        </div>
+        <div className="activity-stat-card">
+          <div className="activity-stat-icon" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}>
+            <Edit2 size={24} />
+          </div>
+          <div className="activity-stat-info">
+            <span className="activity-stat-value">{stats?.edits || 0}</span>
+            <span className="activity-stat-label">編輯</span>
+          </div>
+        </div>
+        <div className="activity-stat-card">
+          <div className="activity-stat-icon" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+            <Trash2 size={24} />
+          </div>
+          <div className="activity-stat-info">
+            <span className="activity-stat-value">{stats?.deletes || 0}</span>
+            <span className="activity-stat-label">刪除</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 操作按鈕 */}
+      <div className="activity-actions">
+        <button className="btn-secondary" onClick={onRefresh} disabled={loading}>
+          <RefreshCw size={18} className={loading ? 'spin' : ''} style={{ marginRight: '6px' }} />
+          刷新記錄
+        </button>
+        {activities.length > 0 && (
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              if (window.confirm('確定要清除所有今日活動記錄嗎？')) {
+                onClear();
+              }
+            }}
+            style={{ color: '#ef4444', borderColor: '#ef4444' }}
+          >
+            <Trash2 size={18} style={{ marginRight: '6px' }} />
+            清除記錄
+          </button>
+        )}
+      </div>
+
+      {/* 活動記錄列表 */}
+      <div className="activity-list">
+        {loading && (
+          <div className="activity-loading">
+            <RefreshCw size={32} className="spin" style={{ color: 'var(--primary)' }} />
+            <p>載入活動記錄中...</p>
+          </div>
+        )}
+
+        {!loading && activities.length === 0 && (
+          <div className="activity-empty">
+            <Clock size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+            <h3>今日尚無活動記錄</h3>
+            <p>當您新增、編輯或刪除書籍時，記錄會顯示在這裡</p>
+          </div>
+        )}
+
+        {!loading && activities.map((activity, index) => (
+          <div
+            key={activity.id || index}
+            className="activity-item"
+            style={{ '--activity-color': getActionColor(activity.action) }}
+          >
+            <div className="activity-timeline">
+              <div className="activity-dot" style={{ background: getActionColor(activity.action) }}></div>
+              {index < activities.length - 1 && <div className="activity-line"></div>}
+            </div>
+
+            <div className="activity-content">
+              <div className="activity-header">
+                <span className="activity-icon">{getActionIcon(activity.action)}</span>
+                <span className="activity-action" style={{ color: getActionColor(activity.action) }}>
+                  {getActionLabel(activity.action)}
+                </span>
+                <span className="activity-time">
+                  <Clock size={14} style={{ marginRight: '4px' }} />
+                  {activity.time}
+                </span>
+              </div>
+
+              <div className="activity-book-info">
+                <div className="activity-book-title">{activity.book_title}</div>
+                {activity.book_author && activity.book_author !== '未分類作者' && (
+                  <div className="activity-book-author">作者: {activity.book_author}</div>
+                )}
+              </div>
+
+              {/* 變更細節 */}
+              {activity.action === 'category_change' && activity.details && (
+                <div className="activity-changes">
+                  <span className="change-badge old">{activity.details.old_category}</span>
+                  <span className="change-arrow">→</span>
+                  <span className="change-badge new">{activity.details.new_category}</span>
+                </div>
+              )}
+
+              {activity.action === 'edit' && activity.details?.changes?.length > 0 && (
+                <div className="activity-changes">
+                  {activity.details.changes.map((change, i) => (
+                    <div key={i} className="change-row">
+                      <span className="change-field">{formatFieldName(change.field)}:</span>
+                      <span className="change-old">{change.old || '(空)'}</span>
+                      <span className="change-arrow">→</span>
+                      <span className="change-new">{change.new || '(空)'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activity.action === 'add' && (
+                <div className="activity-category-badge" style={{ background: getActionColor('add') }}>
+                  {activity.book_category}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ITEMS_PER_PAGE = 50;
 
 function App() {
@@ -203,6 +462,14 @@ function App() {
   const BORROWERS = ['州家庭', '妹', '妹(網路)', '州家庭(網路)', '州個人', '州個人(網路)'];
   const [customBorrower, setCustomBorrower] = useState('');
 
+  // 活動記錄狀態
+  const [activities, setActivities] = useState([]);
+  const [activityStats, setActivityStats] = useState({});
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  // 刪除確認對話框狀態
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, bookId: null, bookTitle: '' });
+
   // Theme state
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('library-theme') || 'light';
@@ -231,9 +498,45 @@ function App() {
     }
   }, []);
 
+  // Fetch activities from API
+  const fetchActivities = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/activities`);
+      if (!res.ok) throw new Error('無法取得活動記錄');
+      const data = await res.json();
+      setActivities(data.activities || []);
+      setActivityStats(data.stats || {});
+    } catch (err) {
+      console.error('Fetch activities error:', err);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
+  // Clear activities
+  const clearActivities = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/activities`, { method: 'DELETE' });
+      if (res.ok) {
+        setActivities([]);
+        setActivityStats({});
+      }
+    } catch (err) {
+      console.error('Clear activities error:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchBooks();
   }, [fetchBooks]);
+
+  // 當切換到活動分頁時自動載入活動記錄
+  useEffect(() => {
+    if (viewMode === 'activity') {
+      fetchActivities();
+    }
+  }, [viewMode, fetchActivities]);
 
   // 🚨 離開頁面警告：編輯中離開會提醒
   useEffect(() => {
@@ -319,8 +622,15 @@ function App() {
     }
   };
 
-  const deleteBook = async (bookId) => {
-    if (!window.confirm('確定要刪除這本書嗎？')) return;
+  // 請求刪除（顯示確認對話框）
+  const requestDeleteBook = (book) => {
+    setDeleteConfirm({ open: true, bookId: book.id, bookTitle: book.title });
+  };
+
+  // 確認刪除（執行刪除）
+  const confirmDeleteBook = async () => {
+    const bookId = deleteConfirm.bookId;
+    setDeleteConfirm({ open: false, bookId: null, bookTitle: '' });
 
     setSaving(true);
     try {
@@ -336,6 +646,11 @@ function App() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // 取消刪除
+  const cancelDeleteBook = () => {
+    setDeleteConfirm({ open: false, bookId: null, bookTitle: '' });
   };
 
   const handleChange = (e, field) => {
@@ -610,6 +925,12 @@ function App() {
         {/* View Toggle */}
         <div className="view-toggle">
           <button
+            className={`view-btn ${viewMode === 'activity' ? 'active' : ''}`}
+            onClick={() => setViewMode('activity')}
+          >
+            <Clock size={18} /> 今日活動
+          </button>
+          <button
             className={`view-btn ${viewMode === 'stats' ? 'active' : ''}`}
             onClick={() => setViewMode('stats')}
           >
@@ -677,6 +998,17 @@ function App() {
           {searchTerm && <span> (搜尋: "{searchTerm}")</span>}
           {totalPages > 1 && <span> • 第 {currentPage} / {totalPages} 頁</span>}
         </div>
+      )}
+
+      {/* ACTIVITY VIEW */}
+      {viewMode === 'activity' && (
+        <ActivityLog
+          activities={activities}
+          stats={activityStats}
+          onRefresh={fetchActivities}
+          onClear={clearActivities}
+          loading={activityLoading}
+        />
       )}
 
       {/* STATS VIEW */}
@@ -808,14 +1140,10 @@ function App() {
                           style={{ width: '100%' }}
                         />
                       ) : (
-                        <span
-                          className={book.note ? "clickable-text" : ""}
-                          style={{ fontSize: '0.9rem', color: book.note ? 'inherit' : '#9ca3af' }}
+                        <BorrowerBadge
+                          text={book.note}
                           onClick={() => handleQuickFilter(book.note)}
-                          title={book.note ? "點擊依備註篩選" : ""}
-                        >
-                          {book.note || '-'}
-                        </span>
+                        />
                       )}
                     </td>
                     <td className="col-actions">
@@ -842,7 +1170,7 @@ function App() {
                           <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}>
                             <Edit2 size={16} />
                           </button>
-                          <button className="btn-icon" onClick={() => deleteBook(book.id)} title="刪除" style={{ color: '#f87171' }} disabled={saving}>
+                          <button className="btn-icon" onClick={() => requestDeleteBook(book)} title="刪除" style={{ color: '#f87171' }} disabled={saving}>
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -915,7 +1243,7 @@ function App() {
                           <span style={{ fontSize: '14px', fontWeight: 'bold' }}>C</span>
                         </button>
                         <button className="btn-icon" onClick={() => startEdit(book)} title="編輯" disabled={saving}><Edit2 size={18} /></button>
-                        <button className="btn-icon" onClick={() => deleteBook(book.id)} title="刪除" style={{ color: '#f87171' }} disabled={saving}><Trash2 size={18} /></button>
+                        <button className="btn-icon" onClick={() => requestDeleteBook(book)} title="刪除" style={{ color: '#f87171' }} disabled={saving}><Trash2 size={18} /></button>
                       </div>
                     </div>
                   </>
@@ -966,6 +1294,63 @@ function App() {
       {filteredBooks.length === 0 && (
         <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)', fontSize: '1.1rem' }}>
           沒有找到相關書籍
+        </div>
+      )}
+
+
+      {/* DELETE CONFIRM MODAL */}
+      {deleteConfirm.open && (
+        <div className="modal-overlay" onClick={cancelDeleteBook}>
+          <div className="modal-content delete-confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+              <h3 className="modal-title" style={{ color: '#ef4444' }}>
+                <Trash2 size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                確認刪除
+              </h3>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
+              <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>確定要刪除這本書嗎？</p>
+              <p style={{
+                fontWeight: 'bold',
+                color: 'var(--text)',
+                background: 'var(--bg-tertiary)',
+                padding: '0.75rem 1rem',
+                borderRadius: '8px',
+                margin: '1rem 0'
+              }}>
+                「{deleteConfirm.bookTitle}」
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>此操作無法復原</p>
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'center',
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid var(--border-color)'
+            }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={cancelDeleteBook}
+                style={{ minWidth: '100px' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={confirmDeleteBook}
+                style={{
+                  minWidth: '100px',
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  border: 'none'
+                }}
+              >
+                確認刪除
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
