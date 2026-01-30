@@ -1172,15 +1172,17 @@ function App() {
               <div className="cards-grid">
                 {paginatedBooks.map(book => (
                   <div key={book.docId} className="book-card" style={{ borderTop: `4px solid ${getCategoryColor(book.category)}` }}>
-                    <div className="card-header">
-                      <span className="card-id">#{book.id}</span>
-                      <span className="card-category" style={{ color: getCategoryColor(book.category) }}>{book.category}</span>
-                    </div>
-                    <h3 className="card-title">{book.title}</h3>
-                    <div className="card-info">
-                      <div className="info-row"><Users size={14} /> {book.author}</div>
-                      <div className="info-row"><Clock size={14} /> {book.date || '-'}</div>
-                      {book.note && <div className="info-row note"><FileText size={14} /> <BorrowerBadge text={book.note} /></div>}
+                    <div className="card-content">
+                      <div className="card-header">
+                        <span className="card-id">#{book.id}</span>
+                        <span className="card-category" style={{ color: getCategoryColor(book.category) }}>{book.category}</span>
+                      </div>
+                      <h3 className="card-title" title={book.title}>{book.title}</h3>
+                      <div className="card-meta">
+                        <div className="meta-row"><Users size={14} /> {book.author}</div>
+                        <div className="meta-row"><Clock size={14} /> {book.date || '-'}</div>
+                        {book.note && <div className="meta-row note"><FileText size={14} /> <BorrowerBadge text={book.note} /></div>}
+                      </div>
                     </div>
                     <div className="card-actions">
                       <button className="icon-btn edit" onClick={() => startEdit(book)}><Edit2 size={16} /></button>
