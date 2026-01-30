@@ -166,7 +166,7 @@ docs = books_ref.stream()
 for d in docs:
     dd = d.to_dict()
     if 'id' in dd:
-        id_map[str(dd['id'])]] = d.id
+        id_map[str(dd['id'])] = d.id
 
 # 2. 處理 Excel
 for index, row in df.iterrows():

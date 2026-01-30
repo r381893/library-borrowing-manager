@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download, Clock, FileText } from 'lucide-react';
+import { Search, Users, Edit2, Library, Trash2, X, Plus, LayoutGrid, List, ChevronLeft, ChevronRight, RefreshCw, Check, AlertCircle, BarChart2, Moon, Sun, Download, Upload, Clock, FileText } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -718,6 +718,114 @@ function App() {
     }
   };
 
+  const fileInputRef = React.useRef(null);
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!window.confirm(`確定要從 "${file.name}" 匯入資料嗎？\n注意：這將會新增不存在的書籍，並更新 ID 相同的書籍。`)) {
+      e.target.value = ''; // Reset
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonData.length === 0) {
+        throw new Error("檔案內容為空");
+      }
+
+      console.log(`Reading ${jsonData.length} rows...`);
+
+      // Batch processing
+      const BATCH_SIZE = 400;
+      let batch = writeBatch(db);
+      let count = 0;
+      let totalProcessed = 0;
+
+      // Scan existing internal IDs to map to Doc IDs
+      // This is expensive for client-side huge lists, but necessary for Update.
+      // Optimally, we query ONLY if we need update. 
+      // For simplicity/safety in this web version: 
+      // We will try to match by 'id' field if possible.
+      // But querying 5000 IDs is slow.
+      // Alternative: We just Add new docs if we can't easily find them?
+      // No, that creates duplicates.
+
+      // Better strategy for Web Import:
+      // Download ALL existing minimal data (id, docId) first?
+      // We already have `books` state! It contains all current books with docId.
+      // PERFECT. We can use local `books` state for collision detection.
+
+      const idMap = new Map();
+      books.forEach(b => {
+        if (b.id) idMap.set(String(b.id), b.docId);
+      });
+
+      for (const row of jsonData) {
+        const sysId = row['系統ID'] || row['id'] || (Date.now() + count); // Fallback ID
+        const sysIdStr = String(sysId);
+
+        const bookData = {
+          id: sysId,
+          title: String(row['書名'] || row['title'] || ''),
+          author: String(row['作者'] || row['author'] || '未分類作者'),
+          category: String(row['分類'] || row['category'] || '新書-待借'),
+          note: String(row['借閱人_備註'] || row['借閱人'] || row['note'] || ''),
+          date: String(row['日期'] || row['date'] || '')
+        };
+
+        // Date cleanup
+        if (bookData.date === 'undefined') bookData.date = '';
+
+        let docRef;
+        if (idMap.has(sysIdStr)) {
+          // Update existing
+          const docId = idMap.get(sysIdStr);
+          docRef = doc(db, 'books', docId);
+        } else {
+          // Create new
+          docRef = doc(collection(db, 'books'));
+        }
+
+        batch.set(docRef, bookData, { merge: true });
+        count++;
+        totalProcessed++;
+
+        if (count >= BATCH_SIZE) {
+          await batch.commit();
+          batch = writeBatch(db);
+          count = 0;
+          console.log(`Processed ${totalProcessed} records...`);
+        }
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      alert(`匯入成功！共處理 ${jsonData.length} 筆資料。`);
+      setLastSaved(new Date());
+
+    } catch (err) {
+      console.error(err);
+      alert("匯入失敗: " + err.message);
+    } finally {
+      setSaving(false);
+      e.target.value = ''; // Reset input
+    }
+  };
+
   const handleExport = () => {
     try {
       // 準備資料
@@ -808,6 +916,16 @@ function App() {
           </div>
 
           <div className="header-actions">
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept=".xlsx,.xls"
+              onChange={handleFileChange}
+            />
+            <button className="theme-toggle" onClick={handleImportClick} title="上傳 Excel 匯入">
+              <Upload size={20} /> <span className="btn-text">上傳</span>
+            </button>
             <button className="theme-toggle" onClick={handleExport} title="下載 Excel">
               <Download size={20} /> <span className="btn-text">下載</span>
             </button>
