@@ -141,18 +141,42 @@ const StatsDashboard = ({ books, categories }) => {
     <div className="stats-dashboard animate-fade-in">
       <div className="stats-cards">
         <div className="stat-card">
-          <h3>📚 總藏書</h3>
-          <p className="stat-value">{books.length}</p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            <Library size={28} />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{books.length.toLocaleString()}</span>
+            <span className="stat-label">總藏書</span>
+          </div>
         </div>
         <div className="stat-card">
-          <h3>✍️ 作者總數</h3>
-          <p className="stat-value">{new Set(books.map(b => b.author)).size}</p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+            <Users size={28} />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{new Set(books.map(b => b.author)).size.toLocaleString()}</span>
+            <span className="stat-label">作者總數</span>
+          </div>
         </div>
         <div className="stat-card">
-          <h3>📅 今日新增</h3>
-          <p className="stat-value">
-            {books.filter(b => b.date === new Date().toISOString().split('T')[0]).length || '-'}
-          </p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+            <Plus size={28} />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">
+              {books.filter(b => b.date === new Date().toISOString().split('T')[0]).length || '0'}
+            </span>
+            <span className="stat-label">今日新增</span>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}>
+            <BarChart2 size={28} />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{categories.filter(c => c.id !== '全部').length}</span>
+            <span className="stat-label">分類數</span>
+          </div>
         </div>
       </div>
 
