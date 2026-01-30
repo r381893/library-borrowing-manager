@@ -42,6 +42,98 @@ CATEGORIES = [
     '未到館'
 ]
 
+# 活動記錄 (今日交易明細) - 持久化到檔案
+ACTIVITY_LOG = []
+ACTIVITY_LOG_FILE = os.path.join(os.path.dirname(__file__), 'activity_log.json')
+
+def load_activity_log():
+    """從檔案載入活動記錄"""
+    global ACTIVITY_LOG
+    try:
+        if os.path.exists(ACTIVITY_LOG_FILE):
+            with open(ACTIVITY_LOG_FILE, 'r', encoding='utf-8') as f:
+                import json
+                ACTIVITY_LOG = json.load(f)
+                logger.info(f"Loaded {len(ACTIVITY_LOG)} activities from file")
+        else:
+            ACTIVITY_LOG = []
+    except Exception as e:
+        logger.error(f"Error loading activity log: {e}")
+        ACTIVITY_LOG = []
+
+def save_activity_log():
+    """儲存活動記錄到檔案"""
+    try:
+        with open(ACTIVITY_LOG_FILE, 'w', encoding='utf-8') as f:
+            import json
+            json.dump(ACTIVITY_LOG, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved {len(ACTIVITY_LOG)} activities to file")
+    except Exception as e:
+        logger.error(f"Error saving activity log: {e}")
+
+def is_valid_date(date_str):
+    """檢查字串是否為有效日期格式"""
+    import re
+    # 常見日期格式: YYYY-MM-DD, YYYY/MM/DD, MM/DD, DD/MM/YYYY 等
+    date_patterns = [
+        r'^\d{4}-\d{1,2}-\d{1,2}$',  # 2024-01-30
+        r'^\d{4}/\d{1,2}/\d{1,2}$',  # 2024/01/30
+        r'^\d{1,2}/\d{1,2}/\d{4}$',  # 01/30/2024
+        r'^\d{1,2}/\d{1,2}$',        # 01/30 (沒有年份)
+        r'^\d{1,2}-\d{1,2}$',        # 01-30 (沒有年份)
+    ]
+    for pattern in date_patterns:
+        if re.match(pattern, date_str):
+            return True
+    return False
+
+
+def add_activity(action, book_data, old_data=None):
+    """記錄活動到日誌"""
+    global ACTIVITY_LOG
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # 清理非今日的記錄 (只保留今日)
+    ACTIVITY_LOG = [a for a in ACTIVITY_LOG if a.get('date', '').startswith(today)]
+    
+    activity = {
+        'id': len(ACTIVITY_LOG) + 1,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'action': action,  # 'add', 'edit', 'delete', 'category_change'
+        'book_id': book_data.get('id'),
+        'book_title': book_data.get('title', ''),
+        'book_author': book_data.get('author', ''),
+        'book_category': book_data.get('category', ''),
+        'old_category': old_data.get('category', '') if old_data else None,
+        'details': {}
+    }
+    
+    # 記錄變更細節
+    if action == 'edit' and old_data:
+        changes = []
+        for key in ['title', 'author', 'date', 'note', 'category']:
+            old_val = old_data.get(key, '')
+            new_val = book_data.get(key, '')
+            if old_val != new_val:
+                changes.append({
+                    'field': key,
+                    'old': old_val,
+                    'new': new_val
+                })
+        activity['details']['changes'] = changes
+    elif action == 'category_change' and old_data:
+        activity['details']['old_category'] = old_data.get('category', '')
+        activity['details']['new_category'] = book_data.get('category', '')
+    
+    ACTIVITY_LOG.insert(0, activity)  # 最新的在最前面
+    save_activity_log()  # 💾 儲存到檔案
+    logger.info(f"Activity logged: {action} - {book_data.get('title', 'Unknown')}")
+    
+    return activity
+
 def read_all_books():
     """從 Excel 讀取所有書籍 (含快取機制) - Optimized"""
     global LAST_MTIME, CACHED_BOOKS
@@ -138,6 +230,14 @@ def read_all_books():
                 # 處理備註
                 note = str(r_note).strip() if pd.notna(r_note) else ''
                 if note == 'ISBN': note = ''
+                
+                # 🔧 自動修正：檢查「到期日」欄位是否被誤填為借閱人名稱
+                # 如果 date 不是日期格式（非 YYYY-MM-DD 或類似格式），就當作備註處理
+                if date and not is_valid_date(date):
+                    # 如果 note 是空的，就把錯誤的日期移過去
+                    if not note:
+                        note = date
+                    date = ''  # 清空日期欄位
 
                 books.append({
                     'id': book_id,
@@ -308,6 +408,8 @@ def add_book():
         books.insert(0, new_book)
         
         if save_all_books(books):
+            # 記錄活動
+            add_activity('add', new_book)
             logger.info(f"Book added successfully: ID {new_id}")
             return jsonify(new_book), 201
         else:
@@ -324,9 +426,12 @@ def update_book(book_id):
     """更新書籍"""
     data = request.json
     books = read_all_books()
+    old_book = None
+    updated_book = None
     
     for i, book in enumerate(books):
         if book['id'] == book_id:
+            old_book = book.copy()  # 保存舊資料
             books[i] = {
                 'id': book_id,
                 'title': data.get('title', book['title']),
@@ -335,10 +440,17 @@ def update_book(book_id):
                 'date': data.get('date', book.get('date', '')),
                 'note': data.get('note', book.get('note', ''))
             }
+            updated_book = books[i]
             break
     
     if save_all_books(books):
-        return jsonify(books[i])
+        # 判斷編輯類型
+        if old_book and updated_book:
+            if old_book.get('category') != updated_book.get('category'):
+                add_activity('category_change', updated_book, old_book)
+            else:
+                add_activity('edit', updated_book, old_book)
+        return jsonify(updated_book)
     else:
         return jsonify({'error': '儲存失敗'}), 500
 
@@ -346,9 +458,20 @@ def update_book(book_id):
 def delete_book(book_id):
     """刪除書籍"""
     books = read_all_books()
+    deleted_book = None
+    
+    # 先找到要刪除的書
+    for b in books:
+        if b['id'] == book_id:
+            deleted_book = b.copy()
+            break
+    
     books = [b for b in books if b['id'] != book_id]
     
     if save_all_books(books):
+        # 記錄刪除活動
+        if deleted_book:
+            add_activity('delete', deleted_book)
         return jsonify({'success': True})
     else:
         return jsonify({'error': '儲存失敗'}), 500
@@ -408,11 +531,48 @@ def force_reload():
     books = read_all_books()
     return jsonify({'message': 'Cache cleared', 'count': len(books)})
 
+@app.route('/api/activities', methods=['GET'])
+def get_activities():
+    """取得今日活動記錄"""
+    global ACTIVITY_LOG
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    # 只回傳今日的記錄
+    today_activities = [a for a in ACTIVITY_LOG if a.get('date', '').startswith(today)]
+    
+    # 統計資訊
+    stats = {
+        'total': len(today_activities),
+        'adds': len([a for a in today_activities if a['action'] == 'add']),
+        'edits': len([a for a in today_activities if a['action'] == 'edit']),
+        'deletes': len([a for a in today_activities if a['action'] == 'delete']),
+        'category_changes': len([a for a in today_activities if a['action'] == 'category_change']),
+        'date': today
+    }
+    
+    return jsonify({
+        'activities': today_activities,
+        'stats': stats
+    })
+
+@app.route('/api/activities', methods=['DELETE'])
+def clear_activities():
+    """清除所有活動記錄"""
+    global ACTIVITY_LOG
+    ACTIVITY_LOG = []
+    save_activity_log()  # 💾 同時清空檔案
+    return jsonify({'success': True, 'message': '活動記錄已清除'})
+
 if __name__ == '__main__':
     print("=" * 50)
     print("📚 圖書館借書管理系統 - API 服務")
     print("=" * 50)
     print(f"Excel 檔案: {EXCEL_FILE}")
-    print(f"API 網址: http://localhost:5000")
+    print(f"API 網址: http://localhost:5001")
     print("=" * 50)
-    app.run(host='0.0.0.0', debug=True, port=5000, use_reloader=False) # Disable reloader to prevent double loops in some envs
+    
+    # 📂 啟動時載入活動記錄
+    load_activity_log()
+    print(f"已載入 {len(ACTIVITY_LOG)} 筆今日活動記錄")
+    
+    app.run(host='0.0.0.0', debug=True, port=5001, use_reloader=False) # Disable reloader to prevent double loops in some envs
