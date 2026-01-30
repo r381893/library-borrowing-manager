@@ -824,6 +824,42 @@ tr:hover {
   box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
 }
 
+.btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
+/* Delete Confirm Modal */
+.confirm-modal {
+  max-width: 400px;
+  text-align: center;
+}
+
+.confirm-modal p {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.confirm-modal .sub-text {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.confirm-modal .modal-actions {
+  justify-content: center;
+}
+
+/* Focus states for buttons */
+.icon-btn:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.icon-btn.delete:focus {
+  outline-color: #ef4444;
+}
+
 /* ============================================
    LOADING & EMPTY STATES
    ============================================ */
