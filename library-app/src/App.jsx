@@ -432,7 +432,7 @@ function App() {
   const [activeCategory, setActiveCategory] = useState('全部');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [sortBy, setSortBy] = useState('added'); // 預設依加入時間 (最新在最上面)
+  const [sortBy, setSortBy] = useState('date_desc'); // 預設依日期 (最新在先)面)
   const [viewMode, setViewMode] = useState('table');
   // Helper: Sanitize title for search (preserve spaces)
   const sanitizeForSearch = (title) => {
